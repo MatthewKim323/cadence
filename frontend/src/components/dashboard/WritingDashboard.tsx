@@ -34,6 +34,8 @@ export function WritingDashboard({ prompt, documentIds, onBack, onDeepDive }: Pr
   const [thinkingLines, setThinkingLines] = useState<string[]>([])
   const [thinkingBuffer, setThinkingBuffer] = useState('')
   const [draftText, setDraftText] = useState('')
+  const [draftHistory, setDraftHistory] = useState<string[]>([])
+  const [viewingDraft, setViewingDraft] = useState(-1)
   const [currentIteration, setCurrentIteration] = useState(0)
   const [completedIterations, setCompletedIterations] = useState<IterationData[]>([])
   const [browsers, setBrowsers] = useState<BrowserInfo[]>([
@@ -154,10 +156,13 @@ export function WritingDashboard({ prompt, documentIds, onBack, onDeepDive }: Pr
           return ''
         })
         setDraftText(prev => prev + msg.text)
+        setViewingDraft(-1)
         break
 
       case 'draft_complete':
         setFinalDraft(msg.text || '')
+        setDraftHistory(prev => [...prev, msg.text || ''])
+        setViewingDraft(-1)
         break
 
       case 'browser_url':
@@ -200,7 +205,15 @@ export function WritingDashboard({ prompt, documentIds, onBack, onDeepDive }: Pr
 
       case 'complete':
         setPhase('complete')
-        if (msg.draft) setFinalDraft(msg.draft)
+        if (msg.draft) {
+          setFinalDraft(msg.draft)
+          setDraftHistory(prev => {
+            if (prev.length === 0 || prev[prev.length - 1] !== msg.draft) {
+              return [...prev, msg.draft]
+            }
+            return prev
+          })
+        }
         break
 
       case 'error':
@@ -216,8 +229,10 @@ export function WritingDashboard({ prompt, documentIds, onBack, onDeepDive }: Pr
   }
 
   useEffect(() => {
-    if (draftRef.current) draftRef.current.scrollTop = draftRef.current.scrollHeight
-  }, [draftText])
+    if (draftRef.current && viewingDraft === -1) {
+      draftRef.current.scrollTop = draftRef.current.scrollHeight
+    }
+  }, [draftText, viewingDraft])
 
   useEffect(() => {
     if (thinkingRef.current) thinkingRef.current.scrollTop = thinkingRef.current.scrollHeight
@@ -243,6 +258,33 @@ export function WritingDashboard({ prompt, documentIds, onBack, onDeepDive }: Pr
 
   const browserLabel = (name: string) =>
     name === 'zerogpt' ? 'ZeroGPT' : 'Originality.ai'
+
+  const isViewingOld = viewingDraft >= 0 && viewingDraft < draftHistory.length
+  const displayedDraftText = isViewingOld ? draftHistory[viewingDraft] : draftText
+  const totalDrafts = draftHistory.length
+  const currentDraftIndex = isViewingOld ? viewingDraft : totalDrafts - 1
+
+  const canGoPrev = totalDrafts > 1 && (isViewingOld ? viewingDraft > 0 : totalDrafts > 1)
+  const canGoNext = isViewingOld && viewingDraft < totalDrafts - 1
+
+  const goPrevDraft = () => {
+    if (isViewingOld) {
+      if (viewingDraft > 0) setViewingDraft(viewingDraft - 1)
+    } else {
+      setViewingDraft(totalDrafts - 2)
+    }
+  }
+
+  const goNextDraft = () => {
+    if (isViewingOld) {
+      if (viewingDraft < totalDrafts - 1) {
+        setViewingDraft(viewingDraft + 1)
+      }
+      if (viewingDraft + 1 === totalDrafts - 1) {
+        setViewingDraft(-1)
+      }
+    }
+  }
 
   return (
     <div className="db-writing-dashboard">
@@ -271,35 +313,91 @@ export function WritingDashboard({ prompt, documentIds, onBack, onDeepDive }: Pr
       <div className="db-wd-split">
         {/* LEFT COLUMN: thinking + draft */}
         <div className="db-wd-left">
-          <div className="db-wd-panel db-wd-thinking" ref={thinkingRef}>
-            <div className="db-wd-panel-label">agent thinking</div>
-            {thinkingLines.map((line, i) => (
-              <p key={i} className={`db-wd-think-line ${line.startsWith('---') ? 'db-wd-think-divider' : ''}`}>
-                {line}
-              </p>
-            ))}
-            {thinkingBuffer && (
-              <p className="db-wd-think-line db-wd-think-streaming">
-                {thinkingBuffer}
+          <div className="db-wd-card">
+            <div className="db-wd-card-header">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2a8 8 0 0 0-8 8c0 3.4 2.1 6.3 5 7.5V20a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-2.5c2.9-1.2 5-4.1 5-7.5a8 8 0 0 0-8-8z"/>
+                <path d="M10 22h4"/>
+              </svg>
+              <span className="db-wd-card-title">agent thinking</span>
+              <span className="db-wd-card-badge">
+                {phase === 'profiling' ? 'analyzing voice' : phase === 'writing' ? 'drafting' : phase === 'revising' ? 'revising' : phase === 'detecting' ? 'detecting' : phase === 'complete' ? 'done' : 'connecting'}
+              </span>
+            </div>
+            <div className="db-wd-panel db-wd-thinking" ref={thinkingRef}>
+              {thinkingLines.map((line, i) => (
+                <p key={i} className={`db-wd-think-line ${line.startsWith('---') ? 'db-wd-think-divider' : ''}`}>
+                  {line}
+                </p>
+              ))}
+              {thinkingBuffer && (
+                <p className="db-wd-think-line db-wd-think-streaming">
+                  {thinkingBuffer}
+                  <span className="db-wd-cursor" />
+                </p>
+              )}
+              {!thinkingBuffer && (phase === 'profiling' || phase === 'revising' || phase === 'connecting') && (
                 <span className="db-wd-cursor" />
-              </p>
-            )}
-            {!thinkingBuffer && (phase === 'profiling' || phase === 'revising' || phase === 'connecting') && (
-              <span className="db-wd-cursor" />
-            )}
+              )}
+            </div>
           </div>
 
-          <div className="db-wd-panel db-wd-draft" ref={draftRef}>
-            <div className="db-wd-panel-label">live draft</div>
-            <div className="db-wd-draft-text">
-              {draftText}
-              {phase === 'writing' && <span className="db-wd-cursor" />}
+          <div className="db-wd-card">
+            <div className="db-wd-card-header">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="16" y1="13" x2="8" y2="13"/>
+                <line x1="16" y1="17" x2="8" y2="17"/>
+              </svg>
+              <span className="db-wd-card-title">live draft</span>
+              {totalDrafts > 0 && (
+                <div className="db-wd-draft-nav">
+                  <button
+                    className="db-wd-draft-arrow"
+                    disabled={!canGoPrev}
+                    onClick={goPrevDraft}
+                    title="Previous draft"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M10 12l-4-4 4-4"/>
+                    </svg>
+                  </button>
+                  <span className="db-wd-draft-counter">
+                    {isViewingOld ? `v${viewingDraft + 1}` : `v${totalDrafts}`} / {totalDrafts}
+                  </span>
+                  <button
+                    className="db-wd-draft-arrow"
+                    disabled={!canGoNext}
+                    onClick={goNextDraft}
+                    title="Next draft"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M6 4l4 4-4 4"/>
+                    </svg>
+                  </button>
+                </div>
+              )}
+              {phase === 'writing' && (
+                <span className="db-wd-card-badge db-wd-card-badge--live">streaming</span>
+              )}
+            </div>
+            <div className="db-wd-panel db-wd-draft" ref={draftRef}>
+              <div className="db-wd-draft-text">
+                {displayedDraftText}
+                {phase === 'writing' && !isViewingOld && <span className="db-wd-cursor" />}
+              </div>
             </div>
           </div>
 
           {completedIterations.length > 0 && (
-            <div className="db-wd-history">
-              <div className="db-wd-panel-label">iteration history</div>
+            <div className="db-wd-card">
+              <div className="db-wd-card-header">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                </svg>
+                <span className="db-wd-card-title">iteration history</span>
+              </div>
               <div className="db-wd-history-bars">
                 {completedIterations.map((iter, i) => (
                   <div key={i} className="db-wd-history-row">

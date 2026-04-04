@@ -1129,14 +1129,96 @@
   margin-bottom: 1rem;
 }
 
-.db-wd-panel {
+/* Card wrapper with header */
+.db-wd-card {
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  overflow: hidden;
+}
+
+.db-wd-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.db-wd-card-title {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.db-wd-card-badge {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 0.55rem;
+  color: var(--text-muted);
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.db-wd-card-badge--live {
+  color: #4ade80;
+  border-color: rgba(74, 222, 128, 0.3);
+  animation: pulseDot 1.5s ease infinite;
+}
+
+/* Draft revision navigation */
+.db-wd-draft-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: auto;
+}
+
+.db-wd-draft-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.12s;
+  padding: 0;
+}
+
+.db-wd-draft-arrow:hover:not(:disabled) {
+  border-color: var(--text-muted);
+  color: var(--text);
+  background: var(--bg-surface);
+}
+
+.db-wd-draft-arrow:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+}
+
+.db-wd-draft-counter {
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  color: var(--text-muted);
+  min-width: 45px;
+  text-align: center;
+}
+
+.db-wd-panel {
   padding: 0.75rem;
-  min-height: 240px;
+  min-height: 200px;
   max-height: 320px;
   overflow-y: auto;
-  background: var(--bg-elevated);
 }
 
 .db-wd-panel::-webkit-scrollbar {
@@ -1294,12 +1376,8 @@
 }
 
 /* Iteration History */
-.db-wd-history {
-  margin-bottom: 1rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.75rem;
-  background: var(--bg-elevated);
+.db-wd-history-bars {
+  padding: 0.6rem 0.75rem;
 }
 
 .db-wd-history-bars {

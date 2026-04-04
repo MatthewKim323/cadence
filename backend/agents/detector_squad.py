@@ -49,24 +49,22 @@ DETECTORS = [
             "3. After the full text is entered, click the scan/check button.\n"
             "4. Wait for results to fully load — this may take 10-30 seconds.\n"
             "5. SCROLL DOWN to see the complete results below.\n"
-            "6. Read the overall AI score percentage and Original score percentage.\n"
-            "7. NOW THIS IS CRITICAL — Originality.ai displays the analyzed text with a COLOR GRADIENT:\n"
-            "   - BRIGHT GREEN sentences = human-written (low AI probability). These are OK.\n"
-            "   - YELLOW sentences = possibly AI-generated (medium AI probability). These are FLAGGED.\n"
-            "   - ORANGE sentences = likely AI-generated (high AI probability). These are FLAGGED.\n"
-            "   - RED sentences = almost certainly AI-generated (very high AI probability). These are FLAGGED.\n"
-            "   You need to identify every sentence that is NOT bright green — any sentence that is\n"
-            "   yellow, orange, or red colored.\n"
-            "8. For each non-green sentence, HOVER over it with your mouse. A tooltip will appear\n"
-            "   showing the exact AI likelihood percentage for that sentence. Note this percentage.\n"
-            "9. Return your findings in this format:\n"
-            "   AI Score: [overall percentage]%\n"
-            "   Original Score: [percentage]%\n"
+            "6. Look at the RIGHT side of the results — there is an overall AI percentage score. Read this number.\n"
+            "7. NOW look at the analyzed text. After scanning, Originality colors each sentence with a background:\n"
+            "   - Sentences with a GREEN background = human. Ignore these.\n"
+            "   - Sentences with a YELLOW/ORANGE background = risky. COUNT these as flagged.\n"
+            "   - Sentences with a RED/PINK background = AI detected. COUNT these as flagged.\n"
+            "   Look at EVERY sentence in the results and note its background color.\n"
+            "   COUNT the total number of sentences that are NOT green.\n"
+            "   For each non-green sentence, copy its EXACT text.\n"
+            "8. Return your findings in this EXACT format:\n"
+            "   AI Score: [percentage]%\n"
+            "   Total flagged: [number] sentences\n"
             "   Flagged sentences:\n"
-            "   - [exact text of sentence] (AI likelihood: [X]%)\n"
-            "   - [exact text of sentence] (AI likelihood: [X]%)\n"
-            "   - ... etc\n"
-            "   If there are any yellow/orange/red sentences, you MUST list them all.\n\n"
+            "   - [exact sentence text] (red)\n"
+            "   - [exact sentence text] (yellow)\n"
+            "   - ... etc for every non-green sentence\n"
+            "   IMPORTANT: If the AI score is above 50%, there MUST be flagged sentences. Do not return 0.\n\n"
             "TEXT TO CHECK:\n\n{text}"
         ),
     },
@@ -115,6 +113,7 @@ def _parse_output(raw: str) -> tuple[float, list[str]]:
         if in_flagged_section or line.startswith("-") or line.startswith("•") or line.startswith("*"):
             sentence = line.lstrip('-•*0123456789.) ').strip()
             sentence = re.sub(r'\(AI likelihood:.*?\)', '', sentence).strip()
+            sentence = re.sub(r'\((red|yellow|orange|green)\)', '', sentence, flags=re.IGNORECASE).strip()
             sentence = sentence.strip('"\'')
             if len(sentence) > 15:
                 flagged.append(sentence)

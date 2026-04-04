@@ -17,26 +17,41 @@ async def write_draft(
     client = anthropic.AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
     rules_block = "\n".join(f"- {r}" for r in fingerprint.get("writing_rules", []))
+    quirks_block = "\n".join(f"- {q}" for q in fingerprint.get("quirks", []))
     exemplars_block = "\n\n".join(fingerprint.get("exemplar_passages", []))
     avoided_block = "\n".join(f"- {p}" for p in fingerprint.get("avoided_patterns", []))
     signature_block = ", ".join(fingerprint.get("signature_phrases", []))
+    starters_block = ", ".join(fingerprint.get("sentence_starters", []))
+
+    vocab = fingerprint.get("vocabulary_preferences", {})
+    vocab_uses = ", ".join(vocab.get("uses", []))
+    vocab_avoids = ", ".join(vocab.get("avoids", []))
 
     metrics = fingerprint.get("metrics", {})
     metrics_block = (
         f"Avg sentence length: {metrics.get('avg_sentence_length', 'N/A')} words\n"
+        f"Shortest sentence: {metrics.get('shortest_sentence_words', 'N/A')} words\n"
+        f"Longest sentence: {metrics.get('longest_sentence_words', 'N/A')} words\n"
         f"Sentence length variance: {metrics.get('sentence_length_variance', 'N/A')}\n"
         f"Formality: {metrics.get('formality', 'N/A')}\n"
         f"Directness: {metrics.get('directness', 'N/A')}\n"
+        f"Contraction rate: {metrics.get('contraction_rate', 'N/A')}\n"
         f"Em-dash frequency: {metrics.get('em_dash_frequency', 'N/A')}\n"
-        f"Semicolon frequency: {metrics.get('semicolon_frequency', 'N/A')}"
+        f"Semicolon frequency: {metrics.get('semicolon_frequency', 'N/A')}\n"
+        f"Avg paragraph length: {metrics.get('avg_paragraph_sentences', 'N/A')} sentences\n"
+        f"Paragraph length variance: {metrics.get('paragraph_length_variance', 'N/A')}"
     )
 
     fingerprint_section = (
         f"## VOICE FINGERPRINT\n\n"
         f"### Metrics\n{metrics_block}\n\n"
         f"### Writing Rules\n{rules_block}\n\n"
+        f"### Human Quirks & Imperfections\n{quirks_block}\n\n"
+        f"### Common Sentence Starters\n{starters_block}\n\n"
         f"### Signature Phrases\n{signature_block}\n\n"
         f"### Avoided Patterns\n{avoided_block}\n\n"
+        f"### Vocabulary (uses these words): {vocab_uses}\n"
+        f"### Vocabulary (never uses these words): {vocab_avoids}\n\n"
         f"### Exemplar Passages\n{exemplars_block}"
     )
 
