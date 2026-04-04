@@ -196,7 +196,7 @@ export function Studios() {
     <section id="studios" className="section" ref={ref as React.RefObject<HTMLElement>}>
       <div className="section-inner">
         <div className={`reveal ${isInView ? 'in-view' : ''}`}>
-          <p className="section-eyebrow">two studios, four agents</p>
+          <p className="section-eyebrow">two studios, eleven agents</p>
           <h2 className="section-title">
             Two studios.<br />
             <span className="accent">One voice.</span>
@@ -215,13 +215,14 @@ export function Studios() {
             <p className="studio-desc">
               Upload your past writing and watch a multi-agent pipeline work
               live. Voice Analyst fingerprints your style, Writer streams your
-              draft, Detector Squad runs three parallel browsers on AI
-              detectors, and the Quality Scorer loops revisions until you pass.
+              draft, three Browser Use detector agents navigate GPTZero,
+              ZeroGPT, and Originality.ai in parallel — consensus scoring
+              loops revisions until your draft is undetectable.
             </p>
             <div className="studio-tags">
               <span className="studio-tag">Multi-Agent</span>
-              <span className="studio-tag">AI Detection Loop</span>
-              <span className="studio-tag">Quality Scorer</span>
+              <span className="studio-tag">3 Browser Use Detectors</span>
+              <span className="studio-tag">Consensus Loop</span>
               <span className="studio-tag">Live Dashboard</span>
             </div>
             <div className="studio-visual">
@@ -236,14 +237,14 @@ export function Studios() {
               Upload your email history. Cadence learns your tone shifts
               between peers and managers. Describe your intent — "tell Sarah
               I can't make 3pm" — and the Short-Form Writer drafts a
-              recipient-aware email in your voice. Or let the inbox agent
-              read your Gmail and draft replies.
+              recipient-aware email. Or trigger the Gmail Reader and Gmail
+              Sender agents to scan your inbox and send replies automatically.
             </p>
             <div className="studio-tags">
-              <span className="studio-tag">Gmail</span>
-              <span className="studio-tag">Recipient-Aware</span>
+              <span className="studio-tag">Gmail Reader Agent</span>
+              <span className="studio-tag">Gmail Sender Agent</span>
               <span className="studio-tag">Short-Form Writer</span>
-              <span className="studio-tag">Inbox Agent</span>
+              <span className="studio-tag">Recipient-Aware</span>
             </div>
             <div className="studio-visual">
               <CommsVisual />

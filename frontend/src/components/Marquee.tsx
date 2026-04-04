@@ -2,16 +2,17 @@ const items = [
   'voice fingerprinting',
   'live dashboard',
   'ai detection loop',
-  '7 agents on agentverse',
-  'browser automation',
-  'quality scorer',
+  '11 agents on agentverse',
+  'browser use detectors',
+  'consensus scoring',
   'writing studio',
   'communication studio',
   'voice interviews',
   'two orchestrators',
   'writing.cadence',
   'comms.cadence',
-  'revision loop',
+  'gmail reader + sender',
+  'claude + browser use',
 ]
 
 export function Marquee() {

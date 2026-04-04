@@ -849,6 +849,7 @@ img {
 .term-line--8 { animation-delay: 4.6s; }
 .term-line--9 { animation-delay: 5.2s; }
 .term-line--10 { animation-delay: 5.8s; }
+.term-line--11 { animation-delay: 6.4s; }
 
 .term-line--indent {
   padding-left: 1.6rem;

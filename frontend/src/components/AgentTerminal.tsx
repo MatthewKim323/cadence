@@ -13,8 +13,8 @@ export function AgentTerminal() {
             <span className="accent">In real time.</span>
           </h2>
           <p className="section-desc">
-            Four specialized agents coordinate live — Voice Analyst,
-            Writer, Detector Squad, and Quality Scorer. Each step visible,
+            Eleven agents coordinate live — Claude for intelligence,
+            Browser Use for web interaction. Each step visible,
             each agent auditable.
           </p>
         </div>
@@ -33,8 +33,8 @@ export function AgentTerminal() {
               <>
                 <div className="term-line term-line--1">
                   <span className="term-prompt">▸</span>
-                  <span className="term-cmd">agent 1 → voice analyst</span>
-                  <span className="term-status term-status--ok">fingerprint ready</span>
+                  <span className="term-cmd">profile digester → parsing writing.cadence</span>
+                  <span className="term-status term-status--ok">done</span>
                 </div>
                 <div className="term-line term-line--2 term-line--indent">
                   <span className="term-tree">└──</span>
@@ -42,43 +42,46 @@ export function AgentTerminal() {
                 </div>
                 <div className="term-line term-line--3">
                   <span className="term-prompt">▸</span>
-                  <span className="term-cmd">agent 2 → writer (streaming)</span>
+                  <span className="term-cmd">long-form writer → streaming draft</span>
                   <span className="term-progress">
                     <span className="term-progress-bar" />
                   </span>
                 </div>
                 <div className="term-line term-line--4">
                   <span className="term-prompt">▸</span>
-                  <span className="term-cmd">agent 3 → detector squad (3 parallel browsers)</span>
+                  <span className="term-cmd">detection loop → 3 browser use agents (parallel)</span>
                 </div>
                 <div className="term-line term-line--5 term-line--indent">
                   <span className="term-tree">├──</span>
-                  <span className="term-detector">gptzero</span>
-                  <span className="term-score">4.2%</span>
-                  <span className="term-check">✓</span>
+                  <span className="term-detector">gptzero agent</span>
+                  <span className="term-score">48%</span>
+                  <span className="term-cmd term-cmd--dim">5 flagged</span>
                 </div>
                 <div className="term-line term-line--6 term-line--indent">
                   <span className="term-tree">├──</span>
-                  <span className="term-detector">zerogpt</span>
-                  <span className="term-score">3.1%</span>
-                  <span className="term-check">✓</span>
+                  <span className="term-detector">zerogpt agent</span>
+                  <span className="term-score">52%</span>
+                  <span className="term-cmd term-cmd--dim">4 flagged</span>
                 </div>
                 <div className="term-line term-line--7 term-line--indent">
                   <span className="term-tree">└──</span>
-                  <span className="term-detector">originality</span>
-                  <span className="term-score">5.8%</span>
-                  <span className="term-check">✓</span>
+                  <span className="term-detector">originality agent</span>
+                  <span className="term-score">44%</span>
+                  <span className="term-cmd term-cmd--dim">6 flagged</span>
                 </div>
                 <div className="term-line term-line--8">
                   <span className="term-prompt">▸</span>
-                  <span className="term-cmd">quality scorer → voice match</span>
-                  <span className="term-status term-status--ok">93%</span>
+                  <span className="term-cmd">consensus: 3 sentences flagged by all 3 → revising</span>
                 </div>
                 <div className="term-line term-line--9">
                   <span className="term-prompt">▸</span>
-                  <span className="term-cmd term-cmd--success">all agents complete. draft passed.</span>
+                  <span className="term-cmd">re-detection → gptzero 8% · zerogpt 6% · originality 9%</span>
                 </div>
                 <div className="term-line term-line--10">
+                  <span className="term-prompt">▸</span>
+                  <span className="term-cmd term-cmd--success">consensus avg 7.7% — passed. draft complete.</span>
+                </div>
+                <div className="term-line term-line--11">
                   <span className="term-cursor" />
                 </div>
               </>

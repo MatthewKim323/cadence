@@ -26,12 +26,12 @@ const steps = [
   {
     icon: (
       <svg viewBox="0 0 24 24">
-        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-        <path d="M9 12l2 2 4-4" />
+        <rect x="2" y="3" width="20" height="14" rx="2" />
+        <path d="M8 21h8M12 17v4" />
       </svg>
     ),
-    label: 'Detector Squad',
-    sub: '3 parallel browsers',
+    label: '3 Detectors',
+    sub: 'Browser Use agents in parallel',
   },
   {
     icon: (
@@ -40,8 +40,8 @@ const steps = [
         <circle cx="12" cy="12" r="3" />
       </svg>
     ),
-    label: 'Quality Scorer',
-    sub: 'Voice match evaluation',
+    label: 'Consensus',
+    sub: 'Cross-reference flagged sentences',
   },
   {
     icon: (
@@ -51,7 +51,7 @@ const steps = [
       </svg>
     ),
     label: 'Pass',
-    sub: 'Revision loop until ≥85%',
+    sub: 'Revision loop until ≤10%',
   },
 ]
 
@@ -62,15 +62,15 @@ export function Pipeline() {
     <section id="pipeline" className="section" ref={ref as React.RefObject<HTMLElement>}>
       <div className="section-inner">
         <div className={`reveal ${isInView ? 'in-view' : ''}`}>
-          <p className="section-eyebrow">the multi-agent pipeline</p>
+          <p className="section-eyebrow">the detection loop</p>
           <h2 className="section-title">
-            Four agents.<br />
-            <span className="accent">One loop.</span>
+            Write. Detect.<br />
+            <span className="accent">Revise. Repeat.</span>
           </h2>
           <p className="section-desc">
-            Each agent specializes in one thing. Voice analysis, writing,
-            detection, quality scoring — all coordinating in a live
-            revision loop until your draft is undetectable.
+            Three Browser Use agents navigate real AI detector websites in
+            parallel, scrape per-sentence flagging, compute consensus, and
+            loop back to the Writer until your draft passes.
           </p>
         </div>
 
