@@ -1,4 +1,8 @@
+import { useAuth } from '../context/AuthContext'
+
 export function Hero() {
+  const { openAuthModal } = useAuth()
+
   return (
     <section className="hero">
       <div className="hero-content">
@@ -13,13 +17,13 @@ export function Hero() {
           writing <em>yours</em>.
         </p>
         <div className="hero-actions">
-          <button className="btn-primary">
+          <button className="btn-primary" onClick={openAuthModal}>
             get started
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
               <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </button>
-          <button className="btn-secondary">see how it works</button>
+          <a href="#studios" className="btn-secondary">see how it works</a>
         </div>
       </div>
       <div className="hero-gradient" />
