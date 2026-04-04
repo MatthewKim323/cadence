@@ -1,185 +1,218 @@
 from __future__ import annotations
 import asyncio
+import logging
 import os
 import re
-import json
-import httpx
 
-BROWSER_USE_API = "https://api.browser-use.com/api/v1"
+from browser_use_sdk import AsyncBrowserUse
+
+log = logging.getLogger("cadence")
 
 DETECTORS = [
     {
-        "name": "gptzero",
-        "url": "https://gptzero.me",
-        "task": (
-            "Go to https://gptzero.me. Find the text input area and paste the following text into it, "
-            "then click the button to check/detect. Wait for results to fully load. "
-            "Extract the overall AI probability percentage and list any sentences that are highlighted or flagged as AI-generated. "
-            "Return the results."
+        "name": "copyleaks",
+        "label": "Copyleaks",
+        "start_url": "https://copyleaks.com/ai-content-detector",
+        "task_template": (
+            "You are on the Copyleaks AI Content Detector page. "
+            "Find the text input area or text box on this page. "
+            "IMPORTANT: Do NOT type the text character by character. Instead, click the text input area, "
+            "then use Ctrl+A to select all existing text, then use clipboard paste (Ctrl+V) to paste the text below. "
+            "The text has already been placed in your clipboard. "
+            "After pasting, click the button to scan/check/detect. "
+            "Wait for the results to fully load — this may take 10-30 seconds. "
+            "Scroll down to see all results if needed. "
+            "Extract the AI probability or AI detection percentage. "
+            "IMPORTANT: Look for any sentences that are highlighted or color-coded as AI-generated. "
+            "Extract EVERY flagged/highlighted sentence exactly as written. "
+            "If no sentences are individually flagged, return an empty list for flagged_sentences. "
+            "\n\nTEXT TO PASTE AND CHECK:\n{text}"
         ),
     },
     {
         "name": "zerogpt",
-        "url": "https://www.zerogpt.com",
-        "task": (
-            "Go to https://www.zerogpt.com. Find the text input area and paste the following text into it, "
-            "then click the detect button. Wait for results to load fully. "
-            "Extract the AI percentage score and list any sentences highlighted as AI-generated. "
-            "Return the results."
+        "label": "ZeroGPT",
+        "start_url": "https://www.zerogpt.com",
+        "task_template": (
+            "You are on ZeroGPT. "
+            "Find the large text input area on this page. "
+            "IMPORTANT: Do NOT type the text character by character. Instead, click the text area, "
+            "then use Ctrl+A to select all, then use clipboard paste (Ctrl+V) to paste the text below. "
+            "The text has already been placed in your clipboard. "
+            "After pasting, find and click the 'Detect Text' button. "
+            "Wait for results to fully load. "
+            "CRITICAL: After results appear, SCROLL DOWN on the page to see the full results section. "
+            "The AI detection percentage is shown below the input area. "
+            "Extract the AI-generated percentage (e.g. '85.67% AI GPT'). "
+            "IMPORTANT: ZeroGPT highlights AI-detected sentences in yellow or a different color. "
+            "Scroll through the entire results area. "
+            "Extract EVERY sentence that ZeroGPT highlighted/marked as AI-generated, "
+            "copying the exact text of each flagged sentence. "
+            "\n\nTEXT TO PASTE AND CHECK:\n{text}"
         ),
     },
     {
         "name": "originality",
-        "url": "https://originality.ai/ai-checker",
-        "task": (
-            "Go to https://originality.ai/ai-checker (the free scanner). Find the text input area and paste the following text, "
-            "then click scan/check. Wait for results. "
-            "Extract the AI score percentage and any flagged sentences. "
-            "Return the results."
+        "label": "Originality.ai",
+        "start_url": "https://originality.ai/ai-checker",
+        "task_template": (
+            "You are on the Originality.ai free AI checker page. "
+            "Find the text input area. "
+            "IMPORTANT: Do NOT type the text character by character. Instead, click the text area, "
+            "then use Ctrl+A to select all, then use clipboard paste (Ctrl+V) to paste the text below. "
+            "The text has already been placed in your clipboard. "
+            "After pasting, click the scan/check button. "
+            "Wait for results to fully load. "
+            "CRITICAL: After results appear, SCROLL DOWN to see the complete results. "
+            "Extract the AI score percentage and the Original score percentage. "
+            "IMPORTANT: Originality.ai color-codes sentences — red/orange are AI-generated, "
+            "green are considered original. Scroll through all results. "
+            "Extract EVERY red or orange sentence exactly as written. "
+            "\n\nTEXT TO PASTE AND CHECK:\n{text}"
         ),
     },
 ]
 
 
-async def _create_session(client: httpx.AsyncClient, api_key: str) -> dict:
-    resp = await client.post(
-        f"{BROWSER_USE_API}/browser/create",
-        headers={"Authorization": f"Bearer {api_key}"},
-        json={},
-    )
-    resp.raise_for_status()
-    return resp.json()
+def _clean_draft_for_paste(text: str) -> str:
+    """Normalize draft text to avoid literal \\n appearing in paste."""
+    text = text.replace("\r\n", "\n")
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
 
 
-async def _run_task(
-    client: httpx.AsyncClient,
-    api_key: str,
-    browser_id: str,
-    task_text: str,
-) -> dict:
-    resp = await client.post(
-        f"{BROWSER_USE_API}/run-task",
-        headers={"Authorization": f"Bearer {api_key}"},
-        json={
-            "task": task_text,
-            "browser_id": browser_id,
-        },
-        timeout=180.0,
-    )
-    resp.raise_for_status()
-    return resp.json()
-
-
-async def _stop_session(client: httpx.AsyncClient, api_key: str, browser_id: str):
-    try:
-        await client.post(
-            f"{BROWSER_USE_API}/browser/{browser_id}/stop",
-            headers={"Authorization": f"Bearer {api_key}"},
-        )
-    except Exception:
-        pass
-
-
-def _parse_score(raw_output: str) -> tuple[float, list[str]]:
-    """Best-effort extraction of AI score and flagged sentences from task output."""
+def _parse_output(raw: str) -> tuple[float, list[str]]:
+    """Extract AI score and flagged sentences from task output text."""
     score = 0.0
-    score_match = re.search(r'(\d{1,3}(?:\.\d+)?)\s*%', raw_output)
-    if score_match:
-        score = float(score_match.group(1))
+    matches = re.findall(r'(\d{1,3}(?:\.\d+)?)\s*%', raw)
+    for m in matches:
+        val = float(m)
+        if 0 < val <= 100:
+            score = val
+            break
 
     flagged = []
-    for line in raw_output.split("\n"):
+    for line in raw.split("\n"):
         line = line.strip()
-        if line.startswith("-") or line.startswith("•") or line.startswith("*"):
-            sentence = line.lstrip("-•* ").strip()
-            if len(sentence) > 15:
+        if not line:
+            continue
+        if line.startswith("-") or line.startswith("•") or line.startswith("*") or line.startswith('"'):
+            sentence = line.lstrip('-•*" ').rstrip('"').strip()
+            if len(sentence) > 20:
                 flagged.append(sentence)
 
     return score, flagged
 
 
 async def _run_detector(
-    client: httpx.AsyncClient,
-    api_key: str,
+    bu_client: AsyncBrowserUse,
     detector: dict,
     draft_text: str,
     send: callable,
 ) -> dict:
-    """Create a browser session, run the detection task, parse results."""
+    """Create a session, get live URL, run detection task, extract results."""
     name = detector["name"]
-    label = "GPTZero" if name == "gptzero" else "ZeroGPT" if name == "zerogpt" else "Originality.ai"
-
-    session = await _create_session(client, api_key)
-    browser_id = session.get("browser_id", session.get("id", ""))
-    share_url = session.get("live_url", session.get("share_url", ""))
-
-    await send({
-        "type": "agent_log",
-        "agent": f"detector:{name}",
-        "text": f"session created, scanning..."
-    })
-
-    await send({
-        "type": "browser_url",
-        "name": name,
-        "url": share_url,
-    })
-
-    task_text = detector["task"] + f"\n\nTEXT TO ANALYZE:\n\n{draft_text}"
+    label = detector["label"]
+    session_id = None
 
     try:
-        result = await _run_task(client, api_key, browser_id, task_text)
-        raw = result.get("output", result.get("result", str(result)))
-        if isinstance(raw, dict):
-            raw = json.dumps(raw)
-        score, flagged = _parse_score(raw)
-    except Exception as e:
+        session = await bu_client.sessions.create_session(
+            keep_alive=True,
+            start_url=detector["start_url"],
+        )
+        session_id = session.id
+        live_url = session.live_url or ""
+
+        log.info(f"[{name}] Session created: {session_id}")
+
         await send({
             "type": "agent_log",
             "agent": f"detector:{name}",
-            "text": f"error: {str(e)[:100]}"
+            "text": "session created, scanning..."
         })
-        score = 0.0
-        flagged = []
-        raw = str(e)
 
-    await _stop_session(client, api_key, browser_id)
+        await send({
+            "type": "browser_url",
+            "name": name,
+            "url": live_url,
+        })
 
-    await send({
-        "type": "agent_log",
-        "agent": f"detector:{name}",
-        "text": f"score: {score:.1f}%, {len(flagged)} sentences flagged"
-    })
+        clean_text = _clean_draft_for_paste(draft_text)
+        task_text = detector["task_template"].format(text=clean_text)
 
-    return {
-        "name": name,
-        "label": label,
-        "score": score,
-        "flagged_sentences": flagged,
-        "raw_output": raw,
-    }
+        task = await bu_client.tasks.create_task(
+            task=task_text,
+            llm="browser-use-llm",
+            session_id=session_id,
+        )
+
+        log.info(f"[{name}] Task created, waiting for completion...")
+
+        result = await task.complete(interval=2)
+
+        raw_output = result.output or ""
+        log.info(f"[{name}] Done. Success={result.is_success}, output={len(raw_output)} chars")
+
+        score, flagged = _parse_output(raw_output)
+
+        await send({
+            "type": "agent_log",
+            "agent": f"detector:{name}",
+            "text": f"score: {score:.1f}%, {len(flagged)} sentences flagged"
+        })
+
+        return {
+            "name": name,
+            "label": label,
+            "score": score,
+            "flagged_sentences": flagged,
+            "raw_output": raw_output,
+        }
+
+    except Exception as e:
+        detail = getattr(e, 'body', str(e))
+        log.error(f"[{name}] Detector failed: {detail}")
+        await send({
+            "type": "agent_log",
+            "agent": f"detector:{name}",
+            "text": f"error: {str(detail)[:200]}"
+        })
+        return {
+            "name": name,
+            "label": label,
+            "score": 0.0,
+            "flagged_sentences": [],
+            "raw_output": str(e),
+        }
+    finally:
+        if session_id:
+            try:
+                await bu_client.sessions.delete_session(session_id)
+            except Exception:
+                pass
 
 
 async def run_detection(
     draft_text: str,
     send: callable,
 ) -> dict:
-    """Run all 3 detectors in parallel and return aggregated results."""
+    """Run all 3 detectors in parallel."""
     api_key = os.getenv("BROWSER_USE_API_KEY", "")
+    bu_client = AsyncBrowserUse(api_key=api_key)
 
-    async with httpx.AsyncClient(timeout=200.0) as client:
-        tasks = [
-            _run_detector(client, api_key, det, draft_text, send)
-            for det in DETECTORS
-        ]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+    tasks = [
+        _run_detector(bu_client, det, draft_text, send)
+        for det in DETECTORS
+    ]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
 
     scores = {}
-    all_flagged = []
+    all_flagged: list[str] = []
     detector_results = []
 
     for r in results:
         if isinstance(r, Exception):
+            log.error(f"Detector gather exception: {r}")
             continue
         scores[r["name"]] = r["score"]
         all_flagged.extend(r["flagged_sentences"])
@@ -189,21 +222,19 @@ async def run_detection(
     valid_scores = [s for s in scores.values() if s > 0]
     consensus = sum(valid_scores) / len(valid_scores) if valid_scores else 0.0
 
+    verdict = "PASS" if consensus <= 10 else "REVISE"
     await send({
         "type": "agent_log",
         "agent": "consensus",
-        "text": (
-            f"avg {consensus:.1f}%, {len(unique_flagged)} unique sentences flagged"
-            f" -> {'PASS' if consensus <= 10 else 'REVISE'}"
-        ),
+        "text": f"avg {consensus:.1f}%, {len(unique_flagged)} unique sentences flagged -> {verdict}",
     })
 
     flagged_with_sources = []
     for sentence in unique_flagged:
-        flagged_by = []
-        for r in detector_results:
-            if sentence in r["flagged_sentences"]:
-                flagged_by.append(r["name"])
+        flagged_by = [
+            r["name"] for r in detector_results
+            if sentence in r["flagged_sentences"]
+        ]
         flagged_with_sources.append({
             "text": sentence,
             "flagged_by": flagged_by,

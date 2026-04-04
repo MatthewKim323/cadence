@@ -1,5 +1,4 @@
 from __future__ import annotations
-import json
 import os
 from pathlib import Path
 import anthropic
@@ -14,8 +13,8 @@ async def write_draft(
     send: callable,
     revision_info: dict | None = None,
 ) -> str:
-    """Run Writer (Agent 2) with streaming, return the full draft text."""
-    client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+    """Run Writer (Agent 2) with async streaming, return the full draft text."""
+    client = anthropic.AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
     rules_block = "\n".join(f"- {r}" for r in fingerprint.get("writing_rules", []))
     exemplars_block = "\n\n".join(fingerprint.get("exemplar_passages", []))
@@ -72,9 +71,8 @@ async def write_draft(
         })
 
     full_draft = ""
-    thinking_text = ""
 
-    with client.messages.stream(
+    async with client.messages.stream(
         model="claude-sonnet-4-20250514",
         max_tokens=16384,
         thinking={
@@ -84,19 +82,11 @@ async def write_draft(
         system=_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_message}],
     ) as stream:
-        for event in stream:
-            if event.type == "content_block_start":
-                if hasattr(event.content_block, "type"):
-                    if event.content_block.type == "thinking":
-                        thinking_text = ""
-                    elif event.content_block.type == "text":
-                        full_draft = ""
-
-            elif event.type == "content_block_delta":
+        async for event in stream:
+            if event.type == "content_block_delta":
                 if hasattr(event.delta, "type"):
                     if event.delta.type == "thinking_delta":
                         chunk = event.delta.thinking
-                        thinking_text += chunk
                         await send({"type": "thinking", "text": chunk})
                     elif event.delta.type == "text_delta":
                         chunk = event.delta.text

@@ -13,6 +13,11 @@ from supabase import create_client
 
 from pipeline import run_writing_pipeline
 
+
+class PipelineCancelled(Exception):
+    pass
+
+
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("cadence")
 
@@ -78,11 +83,17 @@ async def pipeline_ws(ws: WebSocket):
 
         log.info(f"Starting pipeline for user {user_id} with {len(document_ids)} docs")
 
+        disconnected = False
+
         async def send(msg: dict):
+            nonlocal disconnected
+            if disconnected:
+                raise PipelineCancelled()
             try:
                 await ws.send_json(msg)
             except Exception:
-                pass
+                disconnected = True
+                raise PipelineCancelled()
 
         await run_writing_pipeline(
             prompt=prompt,
@@ -93,6 +104,8 @@ async def pipeline_ws(ws: WebSocket):
 
         log.info("Pipeline completed")
 
+    except PipelineCancelled:
+        log.info("Pipeline cancelled — client disconnected")
     except WebSocketDisconnect:
         log.info("Client disconnected")
     except Exception as e:

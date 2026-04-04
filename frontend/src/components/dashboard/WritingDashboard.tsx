@@ -32,17 +32,19 @@ interface Props {
 export function WritingDashboard({ prompt, documentIds, onBack, onDeepDive }: Props) {
   const [phase, setPhase] = useState<Phase>('connecting')
   const [thinkingLines, setThinkingLines] = useState<string[]>([])
+  const [thinkingBuffer, setThinkingBuffer] = useState('')
   const [draftText, setDraftText] = useState('')
   const [currentIteration, setCurrentIteration] = useState(0)
   const [completedIterations, setCompletedIterations] = useState<IterationData[]>([])
   const [browsers, setBrowsers] = useState<BrowserInfo[]>([
-    { name: 'gptzero', url: '', score: null },
+    { name: 'copyleaks', url: '', score: null },
     { name: 'zerogpt', url: '', score: null },
     { name: 'originality', url: '', score: null },
   ])
   const [logEntries, setLogEntries] = useState<LogEntry[]>([])
   const [finalDraft, setFinalDraft] = useState('')
   const [errorMsg, setErrorMsg] = useState('')
+  const [expandedBrowser, setExpandedBrowser] = useState<string | null>(null)
 
   const draftRef = useRef<HTMLDivElement>(null)
   const thinkingRef = useRef<HTMLDivElement>(null)
@@ -121,14 +123,37 @@ export function WritingDashboard({ prompt, documentIds, onBack, onDeepDive }: Pr
         if (msg.iteration) setCurrentIteration(msg.iteration)
         break
 
-      case 'thinking':
-        setThinkingLines(prev => [...prev, msg.text])
+      case 'thinking': {
+        const text: string = msg.text || ''
+        if (text.includes('\n')) {
+          setThinkingBuffer(prev => {
+            const combined = prev + text
+            const parts = combined.split('\n')
+            const complete = parts.slice(0, -1).filter(l => l.trim())
+            const remainder = parts[parts.length - 1]
+            if (complete.length > 0) {
+              setThinkingLines(lines => [...lines, ...complete])
+            }
+            return remainder
+          })
+        } else if (phase === 'profiling' || phase === 'revising') {
+          setThinkingLines(prev => [...prev, text])
+        } else {
+          setThinkingBuffer(prev => prev + text)
+        }
         break
+      }
 
       case 'fingerprint':
         break
 
       case 'draft_chunk':
+        setThinkingBuffer(prev => {
+          if (prev.trim()) {
+            setThinkingLines(lines => [...lines, prev.trim()])
+          }
+          return ''
+        })
         setDraftText(prev => prev + msg.text)
         break
 
@@ -197,7 +222,7 @@ export function WritingDashboard({ prompt, documentIds, onBack, onDeepDive }: Pr
 
   useEffect(() => {
     if (thinkingRef.current) thinkingRef.current.scrollTop = thinkingRef.current.scrollHeight
-  }, [thinkingLines])
+  }, [thinkingLines, thinkingBuffer])
 
   const pipelineIndex =
     phase === 'connecting' || phase === 'profiling' ? 0 :
@@ -205,18 +230,26 @@ export function WritingDashboard({ prompt, documentIds, onBack, onDeepDive }: Pr
     phase === 'detecting' ? 2 :
     phase === 'revising' ? 3 : 4
 
+  const handleBack = useCallback(() => {
+    if (wsRef.current) {
+      wsRef.current.close()
+      wsRef.current = null
+    }
+    onBack()
+  }, [onBack])
+
   const copyDraft = () => {
     navigator.clipboard.writeText(finalDraft || draftText)
   }
 
   const browserLabel = (name: string) =>
-    name === 'gptzero' ? 'GPTZero' :
+    name === 'copyleaks' ? 'Copyleaks' :
     name === 'zerogpt' ? 'ZeroGPT' : 'Originality.ai'
 
   return (
     <div className="db-writing-dashboard">
       <div className="db-wd-header">
-        <button className="db-back-btn" onClick={onBack}>
+        <button className="db-back-btn" onClick={handleBack}>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
             <path d="M10 12l-4-4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
@@ -247,7 +280,13 @@ export function WritingDashboard({ prompt, documentIds, onBack, onDeepDive }: Pr
                 {line}
               </p>
             ))}
-            {(phase === 'profiling' || phase === 'revising' || phase === 'connecting') && (
+            {thinkingBuffer && (
+              <p className="db-wd-think-line db-wd-think-streaming">
+                {thinkingBuffer}
+                <span className="db-wd-cursor" />
+              </p>
+            )}
+            {!thinkingBuffer && (phase === 'profiling' || phase === 'revising' || phase === 'connecting') && (
               <span className="db-wd-cursor" />
             )}
           </div>
@@ -288,13 +327,24 @@ export function WritingDashboard({ prompt, documentIds, onBack, onDeepDive }: Pr
           <div className="db-wd-browsers-stacked">
             <div className="db-wd-panel-label">ai detection — live browsers</div>
             {browsers.map(browser => (
-              <div key={browser.name} className="db-wd-browser">
+              <div
+                key={browser.name}
+                className="db-wd-browser db-wd-browser--clickable"
+                onClick={() => browser.url && setExpandedBrowser(browser.name)}
+              >
                 <div className="db-wd-browser-header">
                   <span className="db-wd-browser-dot" />
                   <span>{browserLabel(browser.name)}</span>
                   {browser.score !== null && (
                     <span className={`db-wd-browser-score-inline ${browser.score <= 10 ? 'pass' : browser.score <= 30 ? 'warn' : 'fail'}`}>
                       {browser.score.toFixed(1)}%
+                    </span>
+                  )}
+                  {browser.url && (
+                    <span className="db-wd-browser-expand-hint">
+                      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                        <path d="M6 2h8v8M14 2L7 9"/>
+                      </svg>
                     </span>
                   )}
                 </div>
@@ -326,6 +376,47 @@ export function WritingDashboard({ prompt, documentIds, onBack, onDeepDive }: Pr
 
           <AgentLog entries={logEntries} />
         </div>
+
+        {/* Expanded browser overlay */}
+        {expandedBrowser && (() => {
+          const b = browsers.find(x => x.name === expandedBrowser)
+          if (!b) return null
+          return (
+            <div className="db-wd-browser-overlay" onClick={() => setExpandedBrowser(null)}>
+              <div className="db-wd-browser-expanded" onClick={e => e.stopPropagation()}>
+                <div className="db-wd-browser-expanded-header">
+                  <span className="db-wd-browser-dot" />
+                  <span>{browserLabel(b.name)}</span>
+                  {b.score !== null && (
+                    <span className={`db-wd-browser-score-inline ${b.score <= 10 ? 'pass' : b.score <= 30 ? 'warn' : 'fail'}`}>
+                      {b.score.toFixed(1)}%
+                    </span>
+                  )}
+                  <button className="db-wd-browser-close" onClick={() => setExpandedBrowser(null)}>
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                      <path d="M4 4l8 8M12 4l-8 8"/>
+                    </svg>
+                  </button>
+                </div>
+                {b.url ? (
+                  <iframe
+                    src={b.url}
+                    className="db-wd-browser-iframe-expanded"
+                    title={b.name}
+                    sandbox="allow-scripts allow-same-origin allow-popups"
+                  />
+                ) : (
+                  <div className="db-wd-browser-viewport" style={{ height: '100%' }}>
+                    <div className="db-wd-browser-scanning">
+                      <div className="db-wd-scan-pulse" />
+                      <span>waiting...</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })()}
       </div>
 
       {phase === 'complete' && (

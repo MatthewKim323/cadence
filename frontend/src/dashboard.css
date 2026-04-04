@@ -1173,6 +1173,11 @@
   padding-top: 0.5rem;
 }
 
+.db-wd-think-streaming {
+  color: var(--text);
+  opacity: 0.8;
+}
+
 .db-wd-draft-text {
   font-family: var(--font-mono);
   font-size: 0.72rem;
@@ -2042,9 +2047,104 @@
   justify-content: center;
 }
 
+.db-wd-browser--clickable {
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.db-wd-browser--clickable:hover {
+  border-color: var(--text-muted);
+}
+
+.db-wd-browser-expand-hint {
+  margin-left: auto;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.db-wd-browser--clickable:hover .db-wd-browser-expand-hint {
+  opacity: 1;
+}
+
 .db-wd-browser-iframe {
   width: 100%;
-  height: 160px;
+  height: 200px;
+  border: none;
+  background: #0a0a0a;
+  pointer-events: none;
+}
+
+/* Expanded browser overlay */
+.db-wd-browser-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(6px);
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.15s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.db-wd-browser-expanded {
+  width: 90vw;
+  height: 85vh;
+  max-width: 1200px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: scaleIn 0.2s ease;
+}
+
+@keyframes scaleIn {
+  from { transform: scale(0.95); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.db-wd-browser-expanded-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.8rem;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.db-wd-browser-close {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.12s;
+}
+
+.db-wd-browser-close:hover {
+  background: var(--bg-surface);
+  color: var(--text);
+}
+
+.db-wd-browser-iframe-expanded {
+  flex: 1;
+  width: 100%;
   border: none;
   background: #0a0a0a;
 }

@@ -120,5 +120,10 @@ async def run_writing_pipeline(
         })
 
     except Exception as e:
+        if "PipelineCancelled" in type(e).__name__:
+            raise
         traceback.print_exc()
-        await send({"type": "error", "message": str(e)})
+        try:
+            await send({"type": "error", "message": str(e)})
+        except Exception:
+            pass
