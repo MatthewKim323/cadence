@@ -19,7 +19,7 @@ type Studio = 'writing' | 'comms'
 type DashboardView =
   | { kind: 'home' }
   | { kind: 'writing' }
-  | { kind: 'writing-pipeline' }
+  | { kind: 'writing-pipeline'; prompt: string }
   | { kind: 'deep-dive' }
   | { kind: 'comms-compose' }
   | { kind: 'comms-reply-queue' }
@@ -43,10 +43,8 @@ export function Dashboard() {
 
   const handleSubmit = useCallback((prompt: string) => {
     if (activeStudio === 'writing') {
-      setView({ kind: 'writing-pipeline' })
+      setView({ kind: 'writing-pipeline', prompt })
     }
-    // Comms compose handles its own generation inline
-    void prompt
   }, [activeStudio])
 
   const handleConfirmDocs = useCallback((ids: string[]) => {
@@ -76,6 +74,8 @@ export function Dashboard() {
       case 'writing-pipeline':
         return (
           <WritingDashboard
+            prompt={view.prompt}
+            documentIds={selectedDocIds}
             onBack={() => setView({ kind: 'writing' })}
             onDeepDive={() => setView({ kind: 'deep-dive' })}
           />

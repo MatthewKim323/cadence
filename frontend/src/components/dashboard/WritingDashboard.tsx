@@ -1,130 +1,195 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { PipelineStatusBar } from './PipelineStatusBar'
+import { AgentLog, type LogEntry } from './AgentLog'
+import { supabase } from '../../lib/supabase'
 
 const PIPELINE_STEPS = ['voice profile', 'writing', 'detection', 'revision', 'complete']
 
-const MOCK_THINKING = [
-  'analyzing voice fingerprint from 3 selected documents...',
-  'user favors short declarative sentences. avg length: 14 words.',
-  'sentence length variance: high — alternates between 6-word punches and 24-word expansions.',
-  'em-dash frequency: heavy. used for asides and mid-sentence pivots.',
-  'semicolons: never. full stop preference.',
-  'avoids "Furthermore", "Moreover", "It is important to note".',
-  'humor register: dry, observational. appears every 3-4 paragraphs.',
-  'voice profile assembled. starting draft with 3-layer prompt stack...',
-]
+const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/pipeline'
 
-const MOCK_DRAFT = `The thing about remote work and creativity is that nobody actually agrees on what either of those words means. Ask ten managers and you'll get eleven frameworks — and at least three will contradict themselves by slide 7.
-
-Here's what the research actually shows. Distributed teams produce more code, more documents, and more Slack messages. Whether that counts as "more creative" depends entirely on how you define the word. Most studies don't.
-
-What they do show — and this part is interesting — is that asynchronous communication changes the texture of ideas. When you have to write your thoughts down instead of tossing them across a conference table, something happens. The half-formed tangent that would've gotten a polite nod in a meeting room becomes a three-paragraph memo. Sometimes that memo is brilliant. Sometimes it's three paragraphs of absolutely nothing.
-
-The real question isn't whether remote work helps or hurts creativity. It's whether you're measuring the right things. If your metric is "number of brainstorming sessions per week," remote teams will always lose. If your metric is "quality of solutions that actually ship," the picture gets more complicated — and more interesting.`
+type Phase = 'connecting' | 'profiling' | 'writing' | 'detecting' | 'revising' | 'complete' | 'error'
 
 interface IterationData {
   round: number
-  scores: { gptzero: number; zerogpt: number; originality: number }
+  scores: Record<string, number>
   consensus: number
   flaggedCount: number
 }
 
-const MOCK_ITERATIONS: IterationData[] = [
-  { round: 1, scores: { gptzero: 48.2, zerogpt: 55.1, originality: 43.8 }, consensus: 49.0, flaggedCount: 5 },
-  { round: 2, scores: { gptzero: 31.4, zerogpt: 38.7, originality: 27.3 }, consensus: 32.5, flaggedCount: 3 },
-  { round: 3, scores: { gptzero: 14.1, zerogpt: 19.8, originality: 12.4 }, consensus: 15.4, flaggedCount: 1 },
-  { round: 4, scores: { gptzero: 5.8, zerogpt: 8.4, originality: 6.1 }, consensus: 6.8, flaggedCount: 0 },
-]
-
-type Phase = 'profiling' | 'writing' | 'detecting' | 'revising' | 'complete'
+interface BrowserInfo {
+  name: string
+  url: string
+  score: number | null
+}
 
 interface Props {
+  prompt: string
+  documentIds: string[]
   onBack: () => void
   onDeepDive: () => void
 }
 
-export function WritingDashboard({ onBack, onDeepDive }: Props) {
-  const [phase, setPhase] = useState<Phase>('profiling')
+export function WritingDashboard({ prompt, documentIds, onBack, onDeepDive }: Props) {
+  const [phase, setPhase] = useState<Phase>('connecting')
   const [thinkingLines, setThinkingLines] = useState<string[]>([])
   const [draftText, setDraftText] = useState('')
   const [currentIteration, setCurrentIteration] = useState(0)
-  const [detectorScores, setDetectorScores] = useState<{ gptzero: number | null; zerogpt: number | null; originality: number | null }>({ gptzero: null, zerogpt: null, originality: null })
   const [completedIterations, setCompletedIterations] = useState<IterationData[]>([])
+  const [browsers, setBrowsers] = useState<BrowserInfo[]>([
+    { name: 'gptzero', url: '', score: null },
+    { name: 'zerogpt', url: '', score: null },
+    { name: 'originality', url: '', score: null },
+  ])
+  const [logEntries, setLogEntries] = useState<LogEntry[]>([])
+  const [finalDraft, setFinalDraft] = useState('')
+  const [errorMsg, setErrorMsg] = useState('')
+
   const draftRef = useRef<HTMLDivElement>(null)
   const thinkingRef = useRef<HTMLDivElement>(null)
-  const startedRef = useRef(false)
+  const wsRef = useRef<WebSocket | null>(null)
+
+  const addLog = useCallback((agent: string, text: string) => {
+    setLogEntries(prev => [...prev, { agent, text, timestamp: Date.now() }])
+  }, [])
 
   useEffect(() => {
-    if (startedRef.current) return
-    startedRef.current = true
-
     let cancelled = false
-    const run = async () => {
-      // Phase 1: profiling (stream thinking lines)
-      for (let i = 0; i < MOCK_THINKING.length; i++) {
-        if (cancelled) return
-        await wait(400 + Math.random() * 300)
-        setThinkingLines(prev => [...prev, MOCK_THINKING[i]])
+
+    const connect = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+      if (!token) {
+        if (!cancelled) {
+          setPhase('error')
+          setErrorMsg('Not authenticated. Please log in again.')
+        }
+        return
       }
 
-      await wait(600)
-      if (cancelled) return
-      setPhase('writing')
-
-      // Phase 2: writing (stream draft character-by-character)
-      for (let i = 0; i <= MOCK_DRAFT.length; i++) {
-        if (cancelled) return
-        setDraftText(MOCK_DRAFT.slice(0, i))
-        await wait(8 + Math.random() * 12)
-      }
-
-      await wait(400)
       if (cancelled) return
 
-      // Phase 3-4: detection iterations
-      for (let iter = 0; iter < MOCK_ITERATIONS.length; iter++) {
-        if (cancelled) return
-        setPhase('detecting')
-        setCurrentIteration(iter + 1)
-        setDetectorScores({ gptzero: null, zerogpt: null, originality: null })
+      const ws = new WebSocket(WS_URL)
+      wsRef.current = ws
 
-        await wait(800)
-        if (cancelled) return
-        setDetectorScores(prev => ({ ...prev, gptzero: MOCK_ITERATIONS[iter].scores.gptzero }))
-
-        await wait(600)
-        if (cancelled) return
-        setDetectorScores(prev => ({ ...prev, zerogpt: MOCK_ITERATIONS[iter].scores.zerogpt }))
-
-        await wait(500)
-        if (cancelled) return
-        setDetectorScores(prev => ({ ...prev, originality: MOCK_ITERATIONS[iter].scores.originality }))
-
-        await wait(400)
-        if (cancelled) return
-        setCompletedIterations(prev => [...prev, MOCK_ITERATIONS[iter]])
-
-        if (MOCK_ITERATIONS[iter].consensus <= 10) {
-          setPhase('complete')
-          break
-        }
-
-        if (iter < MOCK_ITERATIONS.length - 1) {
-          setPhase('revising')
-          setThinkingLines(prev => [
-            ...prev,
-            `--- iteration ${iter + 1} — consensus ${MOCK_ITERATIONS[iter].consensus.toFixed(1)}% — revising ${MOCK_ITERATIONS[iter].flaggedCount} flagged sentences ---`,
-          ])
-          await wait(1200)
-        }
+      ws.onopen = () => {
+        if (cancelled) { ws.close(); return }
+        setPhase('profiling')
+        addLog('system', 'connected to pipeline server')
+        ws.send(JSON.stringify({
+          auth_token: token,
+          prompt,
+          document_ids: documentIds,
+        }))
       }
 
-      if (!cancelled) setPhase('complete')
+      ws.onmessage = (event) => {
+        if (cancelled) return
+        try {
+          const msg = JSON.parse(event.data)
+          handleMessage(msg)
+        } catch { /* ignore parse errors */ }
+      }
+
+      ws.onerror = (e) => {
+        if (cancelled) return
+        console.error('[cadence] WebSocket error:', e)
+        setPhase('error')
+        setErrorMsg('Connection to pipeline server failed. Make sure the backend is running.')
+      }
+
+      ws.onclose = (e) => {
+        console.log('[cadence] WebSocket closed — code:', e.code, 'reason:', e.reason)
+        wsRef.current = null
+      }
     }
 
-    run()
-    return () => { cancelled = true }
+    connect()
+
+    return () => {
+      cancelled = true
+      if (wsRef.current) {
+        wsRef.current.close()
+        wsRef.current = null
+      }
+    }
   }, [])
+
+  const handleMessage = (msg: any) => {
+    switch (msg.type) {
+      case 'status':
+        if (msg.phase) setPhase(msg.phase as Phase)
+        if (msg.iteration) setCurrentIteration(msg.iteration)
+        break
+
+      case 'thinking':
+        setThinkingLines(prev => [...prev, msg.text])
+        break
+
+      case 'fingerprint':
+        break
+
+      case 'draft_chunk':
+        setDraftText(prev => prev + msg.text)
+        break
+
+      case 'draft_complete':
+        setFinalDraft(msg.text || '')
+        break
+
+      case 'browser_url':
+        setBrowsers(prev =>
+          prev.map(b => b.name === msg.name ? { ...b, url: msg.url } : b)
+        )
+        break
+
+      case 'detection':
+        if (msg.scores) {
+          setBrowsers(prev =>
+            prev.map(b => ({
+              ...b,
+              score: msg.scores[b.name] ?? b.score,
+            }))
+          )
+        }
+        if (msg.consensus !== undefined) {
+          setCompletedIterations(prev => [...prev, {
+            round: msg.iteration || prev.length + 1,
+            scores: msg.scores || {},
+            consensus: msg.consensus,
+            flaggedCount: msg.flagged_count || 0,
+          }])
+        }
+        break
+
+      case 'revising':
+        setPhase('revising')
+        setDraftText('')
+        setBrowsers(prev => prev.map(b => ({ ...b, score: null, url: '' })))
+        if (msg.flagged_sentences) {
+          const count = msg.flagged_sentences.length
+          setThinkingLines(prev => [
+            ...prev,
+            `--- iteration ${msg.iteration} — revising ${count} flagged sentences ---`,
+          ])
+        }
+        break
+
+      case 'complete':
+        setPhase('complete')
+        if (msg.draft) setFinalDraft(msg.draft)
+        break
+
+      case 'error':
+        setPhase('error')
+        setErrorMsg(msg.message || 'Unknown error')
+        addLog('system', `error: ${msg.message}`)
+        break
+
+      case 'agent_log':
+        addLog(msg.agent || 'system', msg.text || '')
+        break
+    }
+  }
 
   useEffect(() => {
     if (draftRef.current) draftRef.current.scrollTop = draftRef.current.scrollHeight
@@ -135,14 +200,18 @@ export function WritingDashboard({ onBack, onDeepDive }: Props) {
   }, [thinkingLines])
 
   const pipelineIndex =
-    phase === 'profiling' ? 0 :
+    phase === 'connecting' || phase === 'profiling' ? 0 :
     phase === 'writing' ? 1 :
     phase === 'detecting' ? 2 :
     phase === 'revising' ? 3 : 4
 
   const copyDraft = () => {
-    navigator.clipboard.writeText(MOCK_DRAFT)
+    navigator.clipboard.writeText(finalDraft || draftText)
   }
+
+  const browserLabel = (name: string) =>
+    name === 'gptzero' ? 'GPTZero' :
+    name === 'zerogpt' ? 'ZeroGPT' : 'Originality.ai'
 
   return (
     <div className="db-writing-dashboard">
@@ -155,88 +224,109 @@ export function WritingDashboard({ onBack, onDeepDive }: Props) {
         </button>
         <span className="db-wd-title">writing studio — live dashboard</span>
         {currentIteration > 0 && (
-          <span className="db-wd-iteration">iteration {currentIteration}/{MOCK_ITERATIONS.length}</span>
+          <span className="db-wd-iteration">iteration {currentIteration}/5</span>
         )}
       </div>
 
       <PipelineStatusBar steps={PIPELINE_STEPS} currentIndex={pipelineIndex} />
 
-      <div className="db-wd-panels">
-        <div className="db-wd-panel db-wd-thinking" ref={thinkingRef}>
-          <div className="db-wd-panel-label">agent thinking</div>
-          {thinkingLines.map((line, i) => (
-            <p key={i} className={`db-wd-think-line ${line.startsWith('---') ? 'db-wd-think-divider' : ''}`}>
-              {line}
-            </p>
-          ))}
-          {(phase === 'profiling' || phase === 'revising') && (
-            <span className="db-wd-cursor" />
+      {phase === 'error' && (
+        <div className="db-wd-error">
+          <span className="db-wd-error-icon">!</span>
+          <span>{errorMsg}</span>
+        </div>
+      )}
+
+      <div className="db-wd-split">
+        {/* LEFT COLUMN: thinking + draft */}
+        <div className="db-wd-left">
+          <div className="db-wd-panel db-wd-thinking" ref={thinkingRef}>
+            <div className="db-wd-panel-label">agent thinking</div>
+            {thinkingLines.map((line, i) => (
+              <p key={i} className={`db-wd-think-line ${line.startsWith('---') ? 'db-wd-think-divider' : ''}`}>
+                {line}
+              </p>
+            ))}
+            {(phase === 'profiling' || phase === 'revising' || phase === 'connecting') && (
+              <span className="db-wd-cursor" />
+            )}
+          </div>
+
+          <div className="db-wd-panel db-wd-draft" ref={draftRef}>
+            <div className="db-wd-panel-label">live draft</div>
+            <div className="db-wd-draft-text">
+              {draftText}
+              {phase === 'writing' && <span className="db-wd-cursor" />}
+            </div>
+          </div>
+
+          {completedIterations.length > 0 && (
+            <div className="db-wd-history">
+              <div className="db-wd-panel-label">iteration history</div>
+              <div className="db-wd-history-bars">
+                {completedIterations.map((iter, i) => (
+                  <div key={i} className="db-wd-history-row">
+                    <span className="db-wd-history-label">round {iter.round}</span>
+                    <div className="db-wd-history-bar">
+                      <div
+                        className={`db-wd-history-fill ${iter.consensus <= 10 ? 'pass' : iter.consensus <= 30 ? 'warn' : 'fail'}`}
+                        style={{ width: `${Math.min(iter.consensus, 100)}%` }}
+                      />
+                    </div>
+                    <span className={`db-wd-history-val ${iter.consensus <= 10 ? 'pass' : ''}`}>
+                      {iter.consensus.toFixed(1)}%
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
         </div>
 
-        <div className="db-wd-panel db-wd-draft" ref={draftRef}>
-          <div className="db-wd-panel-label">live draft</div>
-          <div className="db-wd-draft-text">
-            {draftText}
-            {phase === 'writing' && <span className="db-wd-cursor" />}
-          </div>
-        </div>
-      </div>
-
-      <div className="db-wd-browsers">
-        <div className="db-wd-panel-label">ai detection — live browsers</div>
-        <div className="db-wd-browser-grid">
-          {(['gptzero', 'zerogpt', 'originality'] as const).map(name => {
-            const score = detectorScores[name]
-            const label = name === 'gptzero' ? 'GPTZero' : name === 'zerogpt' ? 'ZeroGPT' : 'Originality.ai'
-            return (
-              <div key={name} className="db-wd-browser">
+        {/* RIGHT COLUMN: browsers + agent log */}
+        <div className="db-wd-right">
+          <div className="db-wd-browsers-stacked">
+            <div className="db-wd-panel-label">ai detection — live browsers</div>
+            {browsers.map(browser => (
+              <div key={browser.name} className="db-wd-browser">
                 <div className="db-wd-browser-header">
                   <span className="db-wd-browser-dot" />
-                  <span>{label}</span>
+                  <span>{browserLabel(browser.name)}</span>
+                  {browser.score !== null && (
+                    <span className={`db-wd-browser-score-inline ${browser.score <= 10 ? 'pass' : browser.score <= 30 ? 'warn' : 'fail'}`}>
+                      {browser.score.toFixed(1)}%
+                    </span>
+                  )}
                 </div>
                 <div className="db-wd-browser-viewport">
-                  {score === null ? (
-                    <div className="db-wd-browser-scanning">
-                      <div className="db-wd-scan-pulse" />
-                      <span>scanning...</span>
-                    </div>
-                  ) : (
+                  {browser.url ? (
+                    <iframe
+                      src={browser.url}
+                      className="db-wd-browser-iframe"
+                      title={browser.name}
+                      sandbox="allow-scripts allow-same-origin allow-popups"
+                    />
+                  ) : browser.score !== null ? (
                     <div className="db-wd-browser-result">
-                      <span className={`db-wd-score ${score <= 10 ? 'pass' : score <= 30 ? 'warn' : 'fail'}`}>
-                        {score.toFixed(1)}%
+                      <span className={`db-wd-score ${browser.score <= 10 ? 'pass' : browser.score <= 30 ? 'warn' : 'fail'}`}>
+                        {browser.score.toFixed(1)}%
                       </span>
                       <span className="db-wd-score-label">ai probability</span>
+                    </div>
+                  ) : (
+                    <div className="db-wd-browser-scanning">
+                      <div className="db-wd-scan-pulse" />
+                      <span>{phase === 'detecting' ? 'scanning...' : 'waiting...'}</span>
                     </div>
                   )}
                 </div>
               </div>
-            )
-          })}
-        </div>
-      </div>
-
-      {completedIterations.length > 0 && (
-        <div className="db-wd-history">
-          <div className="db-wd-panel-label">iteration history</div>
-          <div className="db-wd-history-bars">
-            {completedIterations.map((iter, i) => (
-              <div key={i} className="db-wd-history-row">
-                <span className="db-wd-history-label">round {iter.round}</span>
-                <div className="db-wd-history-bar">
-                  <div
-                    className={`db-wd-history-fill ${iter.consensus <= 10 ? 'pass' : iter.consensus <= 30 ? 'warn' : 'fail'}`}
-                    style={{ width: `${Math.min(iter.consensus, 100)}%` }}
-                  />
-                </div>
-                <span className={`db-wd-history-val ${iter.consensus <= 10 ? 'pass' : ''}`}>
-                  {iter.consensus.toFixed(1)}%
-                </span>
-              </div>
             ))}
           </div>
+
+          <AgentLog entries={logEntries} />
         </div>
-      )}
+      </div>
 
       {phase === 'complete' && (
         <div className="db-wd-complete">
@@ -257,16 +347,16 @@ export function WritingDashboard({ onBack, onDeepDive }: Props) {
               <span className="db-wd-stat-label">browser sessions</span>
             </div>
             <div className="db-wd-stat">
-              <span className="db-wd-stat-val">{completedIterations.length * 3 * 3}</span>
-              <span className="db-wd-stat-label">pages navigated</span>
+              <span className="db-wd-stat-val">{(finalDraft || draftText).split(/\s+/).length}</span>
+              <span className="db-wd-stat-label">words written</span>
             </div>
             <div className="db-wd-stat">
               <span className="db-wd-stat-val">{completedIterations.length}</span>
-              <span className="db-wd-stat-label">drafts scanned</span>
+              <span className="db-wd-stat-label">rounds</span>
             </div>
             <div className="db-wd-stat">
-              <span className="db-wd-stat-val">{completedIterations.length}/{completedIterations.length}</span>
-              <span className="db-wd-stat-label">no captcha blocks</span>
+              <span className="db-wd-stat-val">{logEntries.length}</span>
+              <span className="db-wd-stat-label">agent messages</span>
             </div>
           </div>
 
@@ -278,8 +368,4 @@ export function WritingDashboard({ onBack, onDeepDive }: Props) {
       )}
     </div>
   )
-}
-
-function wait(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
 }
