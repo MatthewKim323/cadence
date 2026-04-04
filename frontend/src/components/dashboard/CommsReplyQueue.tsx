@@ -1,69 +1,175 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { supabase } from '../../lib/supabase'
+
+const WS_URL = import.meta.env.VITE_COMMS_WS_URL || 'ws://localhost:8000/ws/comms'
 
 interface DraftReply {
   id: string
   sender: string
   subject: string
+  body: string
   draft: string
-  voiceMatch: number
   status: 'pending' | 'approved' | 'skipped'
 }
 
-const MOCK_REPLIES: DraftReply[] = [
-  {
-    id: '1',
-    sender: 'Sarah Chen',
-    subject: 'Q3 deck + meeting tomorrow',
-    draft: "Hey Sarah, yep I'll be there. Can you send the deck beforehand so I can review? Thanks",
-    voiceMatch: 96,
-    status: 'pending',
-  },
-  {
-    id: '2',
-    sender: 'Mike Torres',
-    subject: 'Vendor timeline update',
-    draft: "Got it. The 2-week slip isn't ideal but we can work with it. Can you flag if it slips further?",
-    voiceMatch: 91,
-    status: 'pending',
-  },
-  {
-    id: '3',
-    sender: 'Anne Olin',
-    subject: 'Board prep materials',
-    draft: "Hi Anne, attached is the updated ops summary. Let me know if you'd like me to adjust anything before Thursday.",
-    voiceMatch: 93,
-    status: 'pending',
-  },
-]
-
 interface Props {
   onBack: () => void
+  documentIds: string[]
 }
 
-export function CommsReplyQueue({ onBack }: Props) {
+export function CommsReplyQueue({ onBack, documentIds }: Props) {
   const [replies, setReplies] = useState<DraftReply[]>([])
   const [scanning, setScanning] = useState(true)
-  const [scanProgress, setScanProgress] = useState(0)
+  const [phase, setPhase] = useState<string>('connecting')
+  const [browserUrl, setBrowserUrl] = useState('')
+  const [agentLogs, setAgentLogs] = useState<string[]>([])
+  const [thinkingLines, setThinkingLines] = useState<string[]>([])
+  const [error, setError] = useState('')
+  const [emailsFound, setEmailsFound] = useState<{sender: string; subject: string}[]>([])
+  const [expandedBrowser, setExpandedBrowser] = useState(false)
+
+  const wsRef = useRef<WebSocket | null>(null)
+
+  const addLog = (text: string) => {
+    setAgentLogs(prev => [...prev, text])
+  }
 
   useEffect(() => {
     let cancelled = false
-    const run = async () => {
-      for (let i = 0; i <= 5; i++) {
-        if (cancelled) return
-        setScanProgress(i)
-        await wait(800)
+
+    const connect = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+      if (!token) {
+        if (!cancelled) {
+          setError('Not authenticated. Please log in again.')
+          setScanning(false)
+        }
+        return
       }
+
       if (cancelled) return
-      setScanning(false)
-      for (let i = 0; i < MOCK_REPLIES.length; i++) {
+
+      const ws = new WebSocket(WS_URL)
+      wsRef.current = ws
+
+      ws.onopen = () => {
+        if (cancelled) { ws.close(); return }
+        setPhase('profiling')
+        addLog('connected to comms pipeline')
+        ws.send(JSON.stringify({
+          auth_token: token,
+          document_ids: documentIds,
+        }))
+      }
+
+      ws.onmessage = (event) => {
         if (cancelled) return
-        await wait(600)
-        setReplies(prev => [...prev, MOCK_REPLIES[i]])
+        try {
+          const msg = JSON.parse(event.data)
+          handleMessage(msg)
+        } catch { /* ignore */ }
+      }
+
+      ws.onerror = () => {
+        if (!cancelled) {
+          setError('Connection failed. Is the backend running?')
+          setScanning(false)
+        }
+      }
+
+      ws.onclose = () => {
+        if (!cancelled && phase !== 'complete') {
+          setScanning(false)
+        }
       }
     }
-    run()
-    return () => { cancelled = true }
+
+    connect()
+
+    return () => {
+      cancelled = true
+      if (wsRef.current) {
+        wsRef.current.close()
+        wsRef.current = null
+      }
+    }
   }, [])
+
+  const handleMessage = (msg: any) => {
+    switch (msg.type) {
+      case 'status':
+        setPhase(msg.phase)
+        if (msg.phase === 'scanning') {
+          addLog('scanning inbox...')
+        } else if (msg.phase === 'drafting') {
+          setScanning(false)
+          addLog('drafting replies...')
+        } else if (msg.phase === 'complete') {
+          setScanning(false)
+        }
+        break
+
+      case 'thinking':
+        if (msg.text) {
+          setThinkingLines(prev => [...prev, msg.text])
+        }
+        break
+
+      case 'agent_log':
+        if (msg.text) {
+          addLog(`[${msg.agent}] ${msg.text}`)
+        }
+        break
+
+      case 'browser_url':
+        if (msg.url) {
+          setBrowserUrl(msg.url)
+        }
+        break
+
+      case 'email_found':
+        setEmailsFound(prev => [...prev, {
+          sender: msg.sender,
+          subject: msg.subject,
+        }])
+        break
+
+      case 'scan_progress':
+        addLog(`found ${msg.current} emails to reply to`)
+        break
+
+      case 'draft_reply':
+        setReplies(prev => [...prev, {
+          id: msg.id || String(prev.length),
+          sender: msg.sender || 'Unknown',
+          subject: msg.subject || '',
+          body: msg.body || '',
+          draft: msg.draft || '',
+          status: 'pending',
+        }])
+        break
+
+      case 'complete':
+        setScanning(false)
+        setPhase('complete')
+        if (msg.message) addLog(msg.message)
+        break
+
+      case 'error':
+        setError(msg.message || 'An error occurred')
+        setScanning(false)
+        break
+    }
+  }
+
+  const handleBack = () => {
+    if (wsRef.current) {
+      wsRef.current.close()
+      wsRef.current = null
+    }
+    onBack()
+  }
 
   const updateStatus = (id: string, status: 'approved' | 'skipped') => {
     setReplies(prev => prev.map(r => r.id === id ? { ...r, status } : r))
@@ -78,26 +184,57 @@ export function CommsReplyQueue({ onBack }: Props) {
   return (
     <div className="db-reply-queue">
       <div className="db-rq-header">
-        <button className="db-back-btn" onClick={onBack}>
+        <button className="db-back-btn" onClick={handleBack}>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
             <path d="M10 12l-4-4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
           back to compose
         </button>
         <span className="db-rq-title">reply queue</span>
+        {phase !== 'complete' && phase !== 'connecting' && (
+          <span className="db-wd-card-badge db-wd-card-badge--live">{phase}</span>
+        )}
       </div>
 
+      {error && (
+        <div className="db-rq-error">
+          <p>{error}</p>
+        </div>
+      )}
+
+      {/* Gmail inbox iframe */}
       <div className="db-rq-inbox">
         <div className="db-rq-inbox-header">
           <span className="db-wd-browser-dot" />
           <span>gmail inbox — live browser</span>
+          {browserUrl && (
+            <button
+              className="db-wd-browser-expand"
+              onClick={() => setExpandedBrowser(true)}
+              title="expand"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <polyline points="15 3 21 3 21 9" />
+                <polyline points="9 21 3 21 3 15" />
+                <line x1="21" y1="3" x2="14" y2="10" />
+                <line x1="3" y1="21" x2="10" y2="14" />
+              </svg>
+            </button>
+          )}
         </div>
         <div className="db-rq-inbox-viewport">
-          {scanning ? (
+          {browserUrl ? (
+            <div className="db-rq-iframe-wrap">
+              <iframe
+                src={browserUrl}
+                className="db-rq-iframe"
+                sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+              />
+            </div>
+          ) : scanning ? (
             <div className="db-rq-scanning">
               <div className="db-wd-scan-pulse" />
-              <p>agent is navigating gmail...</p>
-              <p className="db-rq-scan-detail">reading {scanProgress} of 5 unread messages...</p>
+              <p>{phase === 'profiling' ? 'analyzing your communication style...' : 'connecting to gmail...'}</p>
             </div>
           ) : (
             <div className="db-rq-scan-complete">
@@ -105,19 +242,45 @@ export function CommsReplyQueue({ onBack }: Props) {
                 <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
                 <polyline points="22 4 12 14.01 9 11.01"/>
               </svg>
-              <span>inbox scan complete — {MOCK_REPLIES.length} replies drafted</span>
+              <span>inbox scan complete — {replies.length} repl{replies.length !== 1 ? 'ies' : 'y'} drafted</span>
             </div>
           )}
         </div>
       </div>
 
+      {/* Agent log */}
+      {agentLogs.length > 0 && (
+        <div className="db-rq-logs">
+          <div className="db-rq-logs-header">agent log</div>
+          <div className="db-rq-logs-body">
+            {agentLogs.slice(-8).map((l, i) => (
+              <div key={i} className="db-rq-log-line">{l}</div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Emails found during scan */}
+      {emailsFound.length > 0 && replies.length === 0 && scanning && (
+        <div className="db-rq-found">
+          <div className="db-rq-found-header">emails found ({emailsFound.length})</div>
+          {emailsFound.map((e, i) => (
+            <div key={i} className="db-rq-found-item">
+              <span className="db-rq-found-sender">{e.sender}</span>
+              <span className="db-rq-found-subject">— "{e.subject}"</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Draft reply cards */}
       <div className="db-rq-drafts">
         <div className="db-rq-drafts-header">
           <span>draft queue ({replies.length} repl{replies.length !== 1 ? 'ies' : 'y'} ready)</span>
         </div>
 
-        {replies.length === 0 && !scanning && (
-          <p className="db-rq-empty">no drafts yet.</p>
+        {replies.length === 0 && !scanning && !error && (
+          <p className="db-rq-empty">no emails found that need replies.</p>
         )}
 
         {replies.map(reply => (
@@ -130,9 +293,14 @@ export function CommsReplyQueue({ onBack }: Props) {
               <span className="db-rq-card-sender">{reply.sender}</span>
               <span className="db-rq-card-subject">— "{reply.subject}"</span>
             </div>
+            {reply.body && (
+              <div className="db-rq-card-original">
+                <span className="db-rq-card-original-label">original:</span>
+                <p>{reply.body.slice(0, 200)}{reply.body.length > 200 ? '...' : ''}</p>
+              </div>
+            )}
             <p className="db-rq-card-draft">{reply.draft}</p>
             <div className="db-rq-card-footer">
-              <span className="db-rq-card-voice">voice: {reply.voiceMatch}%</span>
               {reply.status === 'pending' ? (
                 <div className="db-rq-card-actions">
                   <button className="db-btn-primary db-btn-sm" onClick={() => updateStatus(reply.id, 'approved')}>approve</button>
@@ -154,10 +322,28 @@ export function CommsReplyQueue({ onBack }: Props) {
           </button>
         </div>
       )}
+
+      {/* Expanded browser overlay */}
+      {expandedBrowser && browserUrl && (
+        <div className="db-wd-browser-overlay" onClick={() => setExpandedBrowser(false)}>
+          <div className="db-wd-browser-overlay-content" onClick={e => e.stopPropagation()}>
+            <div className="db-wd-browser-overlay-header">
+              <span>gmail inbox — live browser</span>
+              <button className="db-wd-browser-overlay-close" onClick={() => setExpandedBrowser(false)}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="18" y1="6" x2="6" y2="18"/>
+                  <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+            <iframe
+              src={browserUrl}
+              className="db-wd-browser-overlay-iframe"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
-}
-
-function wait(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
 }

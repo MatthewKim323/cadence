@@ -87,11 +87,16 @@ export function Dashboard() {
           />
         )
       case 'comms-compose':
-        return <CommsComposeView />
+        return (
+          <CommsComposeView
+            documentIds={selectedDocIds}
+          />
+        )
       case 'comms-reply-queue':
         return (
           <CommsReplyQueue
             onBack={() => setView({ kind: 'comms-compose' })}
+            documentIds={selectedDocIds}
           />
         )
       default:
@@ -130,9 +135,29 @@ export function Dashboard() {
 
         {view.kind === 'comms-compose' && (
           <div className="db-comms-bar-wrap">
+            <div className="db-comms-bar-left">
+              <button
+                className="db-btn-ghost"
+                onClick={() => setSelectorOpen(true)}
+              >
+                {selectedDocIds.length > 0 ? `${selectedDocIds.length} docs selected` : 'select comm samples'}
+              </button>
+              {selectedDocs.length > 0 && (
+                <div className="db-comms-chips">
+                  {selectedDocs.slice(0, 3).map(d => (
+                    <span key={d.id} className="db-comms-chip">{d.filename}</span>
+                  ))}
+                  {selectedDocs.length > 3 && (
+                    <span className="db-comms-chip">+{selectedDocs.length - 3} more</span>
+                  )}
+                </div>
+              )}
+            </div>
             <button
               className="db-btn-ghost"
               onClick={() => setView({ kind: 'comms-reply-queue' })}
+              disabled={selectedDocIds.length === 0}
+              title={selectedDocIds.length === 0 ? 'Select communication samples first' : ''}
             >
               switch to reply queue
             </button>

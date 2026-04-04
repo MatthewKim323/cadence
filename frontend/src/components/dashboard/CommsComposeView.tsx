@@ -1,35 +1,60 @@
 import { useState, useEffect, useRef } from 'react'
+import { supabase } from '../../lib/supabase'
 
-const MOCK_DRAFT = `Hey Sarah,
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
-Can't make the 3pm — vendor stuff is running behind and I need to be on a call with them. Free tomorrow same time if that works?
+interface Props {
+  documentIds: string[]
+}
 
-Also — can you send me the deck when you get a chance?
-
-Thanks`
-
-export function CommsComposeView() {
+export function CommsComposeView({ documentIds }: Props) {
   const [recipient, setRecipient] = useState('')
   const [relationship, setRelationship] = useState('peer')
   const [intent, setIntent] = useState('')
   const [draft, setDraft] = useState('')
   const [generating, setGenerating] = useState(false)
-  const [voiceMatch, setVoiceMatch] = useState<number | null>(null)
   const [copied, setCopied] = useState(false)
+  const [error, setError] = useState('')
   const draftRef = useRef<HTMLDivElement>(null)
 
   const handleGenerate = async () => {
     if (!intent.trim()) return
     setGenerating(true)
     setDraft('')
-    setVoiceMatch(null)
+    setError('')
 
-    for (let i = 0; i <= MOCK_DRAFT.length; i++) {
-      await wait(12 + Math.random() * 18)
-      setDraft(MOCK_DRAFT.slice(0, i))
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+      if (!token) {
+        setError('Not authenticated. Please log in again.')
+        setGenerating(false)
+        return
+      }
+
+      const res = await fetch(`${API_URL}/api/compose`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          auth_token: token,
+          document_ids: documentIds,
+          recipient,
+          relationship,
+          intent,
+        }),
+      })
+
+      const data = await res.json()
+
+      if (data.error) {
+        setError(data.error)
+      } else {
+        setDraft(data.draft || '')
+      }
+    } catch (e: any) {
+      setError(e.message || 'Failed to generate draft. Is the backend running?')
     }
 
-    setVoiceMatch(94)
     setGenerating(false)
   }
 
@@ -45,7 +70,7 @@ export function CommsComposeView() {
   }, [draft])
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(MOCK_DRAFT)
+    navigator.clipboard.writeText(draft)
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }
@@ -107,6 +132,12 @@ export function CommsComposeView() {
           {generating ? 'generating...' : 'generate draft'}
         </button>
 
+        {documentIds.length === 0 && (
+          <div className="db-comms-no-docs">
+            select communication samples from the library for better voice matching
+          </div>
+        )}
+
         <div className="db-comms-tone">
           <span className="db-comms-tone-label">tone:</span>
           <span className="db-comms-tone-val">
@@ -118,7 +149,13 @@ export function CommsComposeView() {
       <div className="db-comms-col db-comms-preview">
         <div className="db-comms-field-label">draft preview</div>
 
-        {!draft && !generating ? (
+        {error && (
+          <div className="db-rq-error">
+            <p>{error}</p>
+          </div>
+        )}
+
+        {!draft && !generating && !error ? (
           <div className="db-comms-empty">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" opacity="0.25">
               <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
@@ -129,19 +166,9 @@ export function CommsComposeView() {
         ) : (
           <div className="db-comms-draft-area" ref={draftRef}>
             <pre className="db-comms-draft-text">
-              {draft}
+              {draft || (generating ? '' : '')}
               {generating && <span className="db-wd-cursor" />}
             </pre>
-          </div>
-        )}
-
-        {voiceMatch !== null && (
-          <div className="db-comms-voice-bar">
-            <span className="db-comms-voice-label">voice match</span>
-            <div className="db-comms-voice-track">
-              <div className="db-comms-voice-fill" style={{ width: `${voiceMatch}%` }} />
-            </div>
-            <span className="db-comms-voice-val">{voiceMatch}%</span>
           </div>
         )}
 
@@ -156,8 +183,4 @@ export function CommsComposeView() {
       </div>
     </div>
   )
-}
-
-function wait(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
 }
