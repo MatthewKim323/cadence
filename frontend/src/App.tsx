@@ -1,3 +1,5 @@
+import { useState, useCallback } from 'react'
+import { Loader } from './components/Loader'
 import { EclipticaBackground } from './components/EclipticaBackground'
 import { Navbar } from './components/Navbar'
 import { Hero } from './components/Hero'
@@ -11,19 +13,25 @@ import { CTA } from './components/CTA'
 import { Footer } from './components/Footer'
 
 export default function App() {
+  const [loaded, setLoaded] = useState(false)
+  const handleLoaded = useCallback(() => setLoaded(true), [])
+
   return (
-    <div className="noise-overlay">
-      <EclipticaBackground />
-      <Navbar />
-      <Hero />
-      <Marquee />
-      <Studios />
-      <AgentTerminal />
-      <Pipeline />
-      <FetchAI />
-      <TechStrip />
-      <CTA />
-      <Footer />
-    </div>
+    <>
+      {!loaded && <Loader onComplete={handleLoaded} />}
+      <div className={`noise-overlay ${loaded ? 'app-enter' : 'app-hidden'}`}>
+        <EclipticaBackground />
+        <Navbar />
+        <Hero />
+        <Marquee />
+        <Studios />
+        <AgentTerminal />
+        <Pipeline />
+        <FetchAI />
+        <TechStrip />
+        <CTA />
+        <Footer />
+      </div>
+    </>
   )
 }
