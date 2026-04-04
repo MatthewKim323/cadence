@@ -1,7 +1,17 @@
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 export function Hero() {
-  const { openAuthModal } = useAuth()
+  const { user, openAuthModal } = useAuth()
+  const navigate = useNavigate()
+
+  const handleGetStarted = () => {
+    if (user) {
+      navigate('/dashboard')
+    } else {
+      openAuthModal()
+    }
+  }
 
   return (
     <section className="hero">
@@ -17,7 +27,7 @@ export function Hero() {
           writing <em>yours</em>.
         </p>
         <div className="hero-actions">
-          <button className="btn-primary" onClick={openAuthModal}>
+          <button className="btn-primary" onClick={handleGetStarted}>
             get started
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
               <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>

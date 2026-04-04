@@ -121,8 +121,21 @@ function UploadStep({ onBack, onDone }: { onBack: () => void; onDone: () => void
 
     for (let i = 0; i < files.length; i++) {
       const { file, category } = files[i]
-      const path = `${user.id}/${category.toLowerCase()}/${Date.now()}_${file.name}`
-      await supabase.storage.from('writing-samples').upload(path, file)
+      const path = `${user.id}/writing/${category.toLowerCase()}/${Date.now()}_${file.name}`
+      const { error: storageError } = await supabase.storage.from('writing-samples').upload(path, file)
+
+      if (!storageError) {
+        await supabase.from('documents').insert({
+          user_id: user.id,
+          filename: file.name,
+          category,
+          doc_type: 'writing',
+          file_path: path,
+          word_count: null,
+          metadata: { size: file.size, type: file.type },
+        })
+      }
+
       setProgress(Math.round(((i + 1) / files.length) * 100))
     }
 

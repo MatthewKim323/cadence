@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 function ProfileDropdown() {
@@ -45,7 +46,7 @@ export function Navbar() {
 
   return (
     <nav className={`navbar ${scrolled ? 'scrolled' : ''}`}>
-      <a href="#" className="navbar-brand">cadence.</a>
+      <Link to="/" className="navbar-brand">cadence.</Link>
       <div className="navbar-links">
         <a href="#studios">studios</a>
         <a href="#pipeline">pipeline</a>
@@ -65,7 +66,10 @@ export function Navbar() {
         </a>
         {!loading && (
           user ? (
-            <ProfileDropdown />
+            <>
+              <Link to="/dashboard" className="navbar-login">dashboard</Link>
+              <ProfileDropdown />
+            </>
           ) : (
             <button className="navbar-login" onClick={openAuthModal}>
               log in

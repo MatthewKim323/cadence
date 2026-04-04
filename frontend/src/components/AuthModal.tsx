@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
@@ -7,6 +8,7 @@ type Mode = 'signin' | 'signup'
 
 export function AuthModal() {
   const { showAuthModal, closeAuthModal } = useAuth()
+  const navigate = useNavigate()
   const [mode, setMode] = useState<Mode>('signup')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -30,7 +32,7 @@ export function AuthModal() {
     setError('')
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.origin },
+      options: { redirectTo: `${window.location.origin}/dashboard` },
     })
     if (error) setError(error.message)
   }
@@ -49,7 +51,11 @@ export function AuthModal() {
       }
     } else {
       const { error } = await supabase.auth.signInWithPassword({ email, password })
-      if (error) setError(error.message)
+      if (error) {
+        setError(error.message)
+      } else {
+        navigate('/dashboard')
+      }
     }
     setLoading(false)
   }
