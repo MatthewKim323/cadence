@@ -46,6 +46,7 @@ export function WritingDashboard({ prompt, documentIds, onBack, onDeepDive }: Pr
   const [finalDraft, setFinalDraft] = useState('')
   const [errorMsg, setErrorMsg] = useState('')
   const [expandedBrowser, setExpandedBrowser] = useState<string | null>(null)
+  const [expandedPanel, setExpandedPanel] = useState<'thinking' | 'draft' | null>(null)
 
   const draftRef = useRef<HTMLDivElement>(null)
   const thinkingRef = useRef<HTMLDivElement>(null)
@@ -161,6 +162,7 @@ export function WritingDashboard({ prompt, documentIds, onBack, onDeepDive }: Pr
 
       case 'draft_complete':
         setFinalDraft(msg.text || '')
+        setDraftText(msg.text || '')
         setDraftHistory(prev => [...prev, msg.text || ''])
         setViewingDraft(-1)
         break
@@ -198,7 +200,7 @@ export function WritingDashboard({ prompt, documentIds, onBack, onDeepDive }: Pr
           const count = msg.flagged_sentences.length
           setThinkingLines(prev => [
             ...prev,
-            `--- iteration ${msg.iteration} — revising ${count} flagged sentences ---`,
+            `--- iteration ${msg.iteration} - revising ${count} flagged sentences ---`,
           ])
         }
         break
@@ -323,6 +325,11 @@ export function WritingDashboard({ prompt, documentIds, onBack, onDeepDive }: Pr
               <span className="db-wd-card-badge">
                 {phase === 'profiling' ? 'analyzing voice' : phase === 'writing' ? 'drafting' : phase === 'revising' ? 'revising' : phase === 'detecting' ? 'detecting' : phase === 'complete' ? 'done' : 'connecting'}
               </span>
+              <button className="db-wd-card-expand" onClick={() => setExpandedPanel('thinking')} title="Expand">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                  <path d="M6 2h8v8M14 2L7 9"/>
+                </svg>
+              </button>
             </div>
             <div className="db-wd-panel db-wd-thinking" ref={thinkingRef}>
               {thinkingLines.map((line, i) => (
@@ -381,6 +388,11 @@ export function WritingDashboard({ prompt, documentIds, onBack, onDeepDive }: Pr
               {phase === 'writing' && (
                 <span className="db-wd-card-badge db-wd-card-badge--live">streaming</span>
               )}
+              <button className="db-wd-card-expand" onClick={() => setExpandedPanel('draft')} title="Expand">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                  <path d="M6 2h8v8M14 2L7 9"/>
+                </svg>
+              </button>
             </div>
             <div className="db-wd-panel db-wd-draft" ref={draftRef}>
               <div className="db-wd-draft-text">
@@ -517,6 +529,74 @@ export function WritingDashboard({ prompt, documentIds, onBack, onDeepDive }: Pr
             </div>
           )
         })()}
+
+        {/* Expanded thinking/draft panel overlay */}
+        {expandedPanel && (
+          <div className="db-wd-browser-overlay" onClick={() => setExpandedPanel(null)}>
+            <div className="db-wd-panel-expanded" onClick={e => e.stopPropagation()}>
+              <div className="db-wd-browser-expanded-header">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  {expandedPanel === 'thinking' ? (
+                    <>
+                      <path d="M12 2a8 8 0 0 0-8 8c0 3.4 2.1 6.3 5 7.5V20a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-2.5c2.9-1.2 5-4.1 5-7.5a8 8 0 0 0-8-8z"/>
+                      <path d="M10 22h4"/>
+                    </>
+                  ) : (
+                    <>
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                      <polyline points="14 2 14 8 20 8"/>
+                    </>
+                  )}
+                </svg>
+                <span>{expandedPanel === 'thinking' ? 'agent thinking' : 'live draft'}</span>
+                {expandedPanel === 'draft' && totalDrafts > 0 && (
+                  <div className="db-wd-draft-nav">
+                    <button className="db-wd-draft-arrow" disabled={!canGoPrev} onClick={goPrevDraft}>
+                      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M10 12l-4-4 4-4"/>
+                      </svg>
+                    </button>
+                    <span className="db-wd-draft-counter">
+                      {isViewingOld ? `v${viewingDraft + 1}` : `v${totalDrafts}`} / {totalDrafts}
+                    </span>
+                    <button className="db-wd-draft-arrow" disabled={!canGoNext} onClick={goNextDraft}>
+                      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M6 4l4 4-4 4"/>
+                      </svg>
+                    </button>
+                  </div>
+                )}
+                <button className="db-wd-browser-close" onClick={() => setExpandedPanel(null)}>
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                    <path d="M4 4l8 8M12 4l-8 8"/>
+                  </svg>
+                </button>
+              </div>
+              <div className="db-wd-panel-expanded-body">
+                {expandedPanel === 'thinking' ? (
+                  <>
+                    {thinkingLines.map((line, i) => (
+                      <p key={i} className={`db-wd-think-line ${line.startsWith('---') ? 'db-wd-think-divider' : ''}`}>
+                        {line}
+                      </p>
+                    ))}
+                    {thinkingBuffer && (
+                      <p className="db-wd-think-line db-wd-think-streaming">
+                        {thinkingBuffer}
+                        <span className="db-wd-cursor" />
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <div className="db-wd-draft-text">
+                    {displayedDraftText}
+                    {phase === 'writing' && !isViewingOld && <span className="db-wd-cursor" />}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {phase === 'complete' && (

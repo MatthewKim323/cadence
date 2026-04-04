@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from supabase import create_client
 
 from pipeline import run_writing_pipeline
+from agents.detector_squad import cleanup_all_sessions
 
 
 class PipelineCancelled(Exception):
@@ -105,11 +106,14 @@ async def pipeline_ws(ws: WebSocket):
         log.info("Pipeline completed")
 
     except PipelineCancelled:
-        log.info("Pipeline cancelled — client disconnected")
+        log.info("Pipeline cancelled — client disconnected, cleaning up sessions...")
+        await cleanup_all_sessions()
     except WebSocketDisconnect:
-        log.info("Client disconnected")
+        log.info("Client disconnected, cleaning up sessions...")
+        await cleanup_all_sessions()
     except Exception as e:
         log.error(f"Pipeline exception: {e}\n{traceback.format_exc()}")
+        await cleanup_all_sessions()
         try:
             await ws.send_json({"type": "error", "message": str(e)})
         except Exception:
