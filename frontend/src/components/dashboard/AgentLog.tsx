@@ -9,7 +9,6 @@ export interface LogEntry {
 const AGENT_COLORS: Record<string, string> = {
   'voice_analyst': '#a78bfa',
   'writer': '#60a5fa',
-  'detector:copyleaks': '#fb923c',
   'detector:zerogpt': '#facc15',
   'detector:originality': '#f472b6',
   'consensus': '#4ade80',
@@ -19,7 +18,6 @@ const AGENT_COLORS: Record<string, string> = {
 const AGENT_LABELS: Record<string, string> = {
   'voice_analyst': 'voice analyst',
   'writer': 'writer',
-  'detector:copyleaks': 'copyleaks',
   'detector:zerogpt': 'zerogpt',
   'detector:originality': 'originality',
   'consensus': 'consensus',

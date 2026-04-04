@@ -2067,12 +2067,22 @@
   opacity: 1;
 }
 
+.db-wd-browser-crop {
+  width: 100%;
+  height: 220px;
+  overflow: hidden;
+  position: relative;
+}
+
 .db-wd-browser-iframe {
   width: 100%;
-  height: 200px;
+  height: calc(220px + 140px);
   border: none;
   background: #0a0a0a;
   pointer-events: none;
+  position: absolute;
+  top: -140px;
+  left: 0;
 }
 
 /* Expanded browser overlay */
@@ -2142,11 +2152,20 @@
   color: var(--text);
 }
 
-.db-wd-browser-iframe-expanded {
+.db-wd-browser-crop-expanded {
   flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+.db-wd-browser-iframe-expanded {
   width: 100%;
+  height: calc(100% + 140px);
   border: none;
   background: #0a0a0a;
+  position: absolute;
+  top: -140px;
+  left: 0;
 }
 
 .db-wd-browser-score-inline {

@@ -37,7 +37,6 @@ export function WritingDashboard({ prompt, documentIds, onBack, onDeepDive }: Pr
   const [currentIteration, setCurrentIteration] = useState(0)
   const [completedIterations, setCompletedIterations] = useState<IterationData[]>([])
   const [browsers, setBrowsers] = useState<BrowserInfo[]>([
-    { name: 'copyleaks', url: '', score: null },
     { name: 'zerogpt', url: '', score: null },
     { name: 'originality', url: '', score: null },
   ])
@@ -243,7 +242,6 @@ export function WritingDashboard({ prompt, documentIds, onBack, onDeepDive }: Pr
   }
 
   const browserLabel = (name: string) =>
-    name === 'copyleaks' ? 'Copyleaks' :
     name === 'zerogpt' ? 'ZeroGPT' : 'Originality.ai'
 
   return (
@@ -350,12 +348,14 @@ export function WritingDashboard({ prompt, documentIds, onBack, onDeepDive }: Pr
                 </div>
                 <div className="db-wd-browser-viewport">
                   {browser.url ? (
-                    <iframe
-                      src={browser.url}
-                      className="db-wd-browser-iframe"
-                      title={browser.name}
-                      sandbox="allow-scripts allow-same-origin allow-popups"
-                    />
+                    <div className="db-wd-browser-crop">
+                      <iframe
+                        src={browser.url}
+                        className="db-wd-browser-iframe"
+                        title={browser.name}
+                        sandbox="allow-scripts allow-same-origin allow-popups"
+                      />
+                    </div>
                   ) : browser.score !== null ? (
                     <div className="db-wd-browser-result">
                       <span className={`db-wd-score ${browser.score <= 10 ? 'pass' : browser.score <= 30 ? 'warn' : 'fail'}`}>
@@ -399,12 +399,14 @@ export function WritingDashboard({ prompt, documentIds, onBack, onDeepDive }: Pr
                   </button>
                 </div>
                 {b.url ? (
-                  <iframe
-                    src={b.url}
-                    className="db-wd-browser-iframe-expanded"
-                    title={b.name}
-                    sandbox="allow-scripts allow-same-origin allow-popups"
-                  />
+                  <div className="db-wd-browser-crop-expanded">
+                    <iframe
+                      src={b.url}
+                      className="db-wd-browser-iframe-expanded"
+                      title={b.name}
+                      sandbox="allow-scripts allow-same-origin allow-popups"
+                    />
+                  </div>
                 ) : (
                   <div className="db-wd-browser-viewport" style={{ height: '100%' }}>
                     <div className="db-wd-browser-scanning">
@@ -434,7 +436,7 @@ export function WritingDashboard({ prompt, documentIds, onBack, onDeepDive }: Pr
 
           <div className="db-wd-complete-stats">
             <div className="db-wd-stat">
-              <span className="db-wd-stat-val">{completedIterations.length * 3}</span>
+              <span className="db-wd-stat-val">{completedIterations.length * 2}</span>
               <span className="db-wd-stat-label">browser sessions</span>
             </div>
             <div className="db-wd-stat">

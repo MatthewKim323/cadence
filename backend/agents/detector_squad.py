@@ -10,45 +10,32 @@ log = logging.getLogger("cadence")
 
 DETECTORS = [
     {
-        "name": "copyleaks",
-        "label": "Copyleaks",
-        "start_url": "https://copyleaks.com/ai-content-detector",
-        "task_template": (
-            "You are on the Copyleaks AI Content Detector page. "
-            "Find the text input area or text box on this page. "
-            "IMPORTANT: Do NOT type the text character by character. Instead, click the text input area, "
-            "then use Ctrl+A to select all existing text, then use clipboard paste (Ctrl+V) to paste the text below. "
-            "The text has already been placed in your clipboard. "
-            "After pasting, click the button to scan/check/detect. "
-            "Wait for the results to fully load — this may take 10-30 seconds. "
-            "Scroll down to see all results if needed. "
-            "Extract the AI probability or AI detection percentage. "
-            "IMPORTANT: Look for any sentences that are highlighted or color-coded as AI-generated. "
-            "Extract EVERY flagged/highlighted sentence exactly as written. "
-            "If no sentences are individually flagged, return an empty list for flagged_sentences. "
-            "\n\nTEXT TO PASTE AND CHECK:\n{text}"
-        ),
-    },
-    {
         "name": "zerogpt",
         "label": "ZeroGPT",
         "start_url": "https://www.zerogpt.com",
         "task_template": (
-            "You are on ZeroGPT. "
-            "Find the large text input area on this page. "
-            "IMPORTANT: Do NOT type the text character by character. Instead, click the text area, "
-            "then use Ctrl+A to select all, then use clipboard paste (Ctrl+V) to paste the text below. "
-            "The text has already been placed in your clipboard. "
-            "After pasting, find and click the 'Detect Text' button. "
-            "Wait for results to fully load. "
-            "CRITICAL: After results appear, SCROLL DOWN on the page to see the full results section. "
-            "The AI detection percentage is shown below the input area. "
-            "Extract the AI-generated percentage (e.g. '85.67% AI GPT'). "
-            "IMPORTANT: ZeroGPT highlights AI-detected sentences in yellow or a different color. "
-            "Scroll through the entire results area. "
-            "Extract EVERY sentence that ZeroGPT highlighted/marked as AI-generated, "
-            "copying the exact text of each flagged sentence. "
-            "\n\nTEXT TO PASTE AND CHECK:\n{text}"
+            "You are on ZeroGPT.com. Follow these steps exactly:\n"
+            "1. Find the large text input area on this page. Click on it.\n"
+            "2. Type the ENTIRE text below into the text area. Do NOT skip any part.\n"
+            "3. After the full text is entered, find and click the 'Detect Text' button.\n"
+            "4. Wait for results to fully load — this may take 5-15 seconds.\n"
+            "5. SCROLL DOWN on the page to see the full results section below the input.\n"
+            "6. Read the AI-generated percentage shown in the results (e.g. '85.67% AI GPT').\n"
+            "7. NOW THIS IS CRITICAL — look at the results text area carefully.\n"
+            "   ZeroGPT highlights sentences it considers AI-generated with a YELLOW BACKGROUND color.\n"
+            "   Sentences with NO highlight are considered human-written.\n"
+            "   You MUST scroll through the ENTIRE results text and identify EVERY sentence\n"
+            "   that has a yellow/highlighted background.\n"
+            "   For each highlighted sentence, copy the EXACT text of that sentence.\n"
+            "8. Return your findings in this format:\n"
+            "   AI Score: [percentage]%\n"
+            "   Flagged sentences:\n"
+            "   - [exact text of first highlighted sentence]\n"
+            "   - [exact text of second highlighted sentence]\n"
+            "   - ... etc\n"
+            "   If there are highlighted sentences, you MUST list them. Do NOT say '0 sentences flagged'\n"
+            "   when there are clearly yellow-highlighted sentences visible.\n\n"
+            "TEXT TO CHECK:\n\n{text}"
         ),
     },
     {
@@ -56,28 +43,49 @@ DETECTORS = [
         "label": "Originality.ai",
         "start_url": "https://originality.ai/ai-checker",
         "task_template": (
-            "You are on the Originality.ai free AI checker page. "
-            "Find the text input area. "
-            "IMPORTANT: Do NOT type the text character by character. Instead, click the text area, "
-            "then use Ctrl+A to select all, then use clipboard paste (Ctrl+V) to paste the text below. "
-            "The text has already been placed in your clipboard. "
-            "After pasting, click the scan/check button. "
-            "Wait for results to fully load. "
-            "CRITICAL: After results appear, SCROLL DOWN to see the complete results. "
-            "Extract the AI score percentage and the Original score percentage. "
-            "IMPORTANT: Originality.ai color-codes sentences — red/orange are AI-generated, "
-            "green are considered original. Scroll through all results. "
-            "Extract EVERY red or orange sentence exactly as written. "
-            "\n\nTEXT TO PASTE AND CHECK:\n{text}"
+            "You are on the Originality.ai free AI checker page. Follow these steps exactly:\n"
+            "1. Find the text input area on this page. Click on it.\n"
+            "2. Type the ENTIRE text below into the text area. Do NOT skip any part.\n"
+            "3. After the full text is entered, click the scan/check button.\n"
+            "4. Wait for results to fully load — this may take 10-30 seconds.\n"
+            "5. SCROLL DOWN to see the complete results below.\n"
+            "6. Read the overall AI score percentage and Original score percentage.\n"
+            "7. NOW THIS IS CRITICAL — Originality.ai displays the analyzed text with a COLOR GRADIENT:\n"
+            "   - BRIGHT GREEN sentences = human-written (low AI probability). These are OK.\n"
+            "   - YELLOW sentences = possibly AI-generated (medium AI probability). These are FLAGGED.\n"
+            "   - ORANGE sentences = likely AI-generated (high AI probability). These are FLAGGED.\n"
+            "   - RED sentences = almost certainly AI-generated (very high AI probability). These are FLAGGED.\n"
+            "   You need to identify every sentence that is NOT bright green — any sentence that is\n"
+            "   yellow, orange, or red colored.\n"
+            "8. For each non-green sentence, HOVER over it with your mouse. A tooltip will appear\n"
+            "   showing the exact AI likelihood percentage for that sentence. Note this percentage.\n"
+            "9. Return your findings in this format:\n"
+            "   AI Score: [overall percentage]%\n"
+            "   Original Score: [percentage]%\n"
+            "   Flagged sentences:\n"
+            "   - [exact text of sentence] (AI likelihood: [X]%)\n"
+            "   - [exact text of sentence] (AI likelihood: [X]%)\n"
+            "   - ... etc\n"
+            "   If there are any yellow/orange/red sentences, you MUST list them all.\n\n"
+            "TEXT TO CHECK:\n\n{text}"
         ),
     },
 ]
 
 
-def _clean_draft_for_paste(text: str) -> str:
-    """Normalize draft text to avoid literal \\n appearing in paste."""
-    text = text.replace("\r\n", "\n")
-    text = re.sub(r'\n{3,}', '\n\n', text)
+def _clean_draft_for_detectors(text: str) -> str:
+    """Strip all newlines and collapse whitespace into plain running text.
+
+    Browser Use agents type literal /n/n when they encounter newline characters
+    in the task text, so we flatten everything to a single continuous paragraph.
+    AI detectors don't need paragraph formatting — they analyze at the sentence level.
+    """
+    text = text.replace("\\n", " ")
+    text = text.replace("\r\n", " ")
+    text = text.replace("\n", " ")
+    text = text.replace("\r", " ")
+    text = text.replace("/n", " ")
+    text = re.sub(r'\s{2,}', ' ', text)
     return text.strip()
 
 
@@ -92,13 +100,23 @@ def _parse_output(raw: str) -> tuple[float, list[str]]:
             break
 
     flagged = []
+    in_flagged_section = False
+
     for line in raw.split("\n"):
         line = line.strip()
         if not line:
             continue
-        if line.startswith("-") or line.startswith("•") or line.startswith("*") or line.startswith('"'):
-            sentence = line.lstrip('-•*" ').rstrip('"').strip()
-            if len(sentence) > 20:
+
+        lower = line.lower()
+        if "flagged" in lower or "highlighted" in lower or "ai-generated" in lower or "ai detected" in lower:
+            in_flagged_section = True
+            continue
+
+        if in_flagged_section or line.startswith("-") or line.startswith("•") or line.startswith("*"):
+            sentence = line.lstrip('-•*0123456789.) ').strip()
+            sentence = re.sub(r'\(AI likelihood:.*?\)', '', sentence).strip()
+            sentence = sentence.strip('"\'')
+            if len(sentence) > 15:
                 flagged.append(sentence)
 
     return score, flagged
@@ -137,7 +155,7 @@ async def _run_detector(
             "url": live_url,
         })
 
-        clean_text = _clean_draft_for_paste(draft_text)
+        clean_text = _clean_draft_for_detectors(draft_text)
         task_text = detector["task_template"].format(text=clean_text)
 
         task = await bu_client.tasks.create_task(
@@ -151,7 +169,7 @@ async def _run_detector(
         result = await task.complete(interval=2)
 
         raw_output = result.output or ""
-        log.info(f"[{name}] Done. Success={result.is_success}, output={len(raw_output)} chars")
+        log.info(f"[{name}] Done. Success={result.is_success}, output:\n{raw_output[:1000]}")
 
         score, flagged = _parse_output(raw_output)
 
@@ -196,7 +214,7 @@ async def run_detection(
     draft_text: str,
     send: callable,
 ) -> dict:
-    """Run all 3 detectors in parallel."""
+    """Run all detectors in parallel."""
     api_key = os.getenv("BROWSER_USE_API_KEY", "")
     bu_client = AsyncBrowserUse(api_key=api_key)
 
