@@ -16,10 +16,12 @@ from datetime import datetime
 from uuid import uuid4
 
 from uagents import Agent, Context, Protocol
+import httpx
 from uagents_core.contrib.protocols.chat import (
     ChatAcknowledgement,
     ChatMessage,
     EndSessionContent,
+    ResourceContent,
     TextContent,
     chat_protocol_spec,
 )
@@ -130,17 +132,30 @@ _PROFILE_KEYWORDS = [
     "contraction", "semicolon", "em-dash", "writing profile",
     "communication rule", "personality", "reasoning style",
     "avg_sentence", "average sentence",
+    "profile", "voice", "rules", "phrases", "patterns",
+    "style", "tone", "vocabulary", "metrics",
+    "pdf", "document", "attached", "uploaded",
 ]
 
 
 def _has_profile_content(text: str) -> bool:
-    lower = text.lower()
+    clean = re.sub(r"@cadence\b", "", text, flags=re.IGNORECASE)
+    lower = clean.lower()
     hits = sum(1 for kw in _PROFILE_KEYWORDS if kw in lower)
-    return hits >= 2
+    matched = [kw for kw in _PROFILE_KEYWORDS if kw in lower]
+    log.info(f"[profile-detect] {hits} keyword hits: {matched}")
+    has_cadence = "cadence" in lower
+    has_profile_signal = any(kw in lower for kw in ["profile", "voice", "writing style", "writing rule", "voice rule"])
+    if has_cadence and has_profile_signal:
+        return True
+    return hits >= 3
 
 
 def _parse_user_input(text: str) -> tuple[str | None, str]:
     """Extract voice profile (JSON or raw text from PDF) and writing prompt."""
+    log.info(f"[parse] Input length: {len(text)} chars")
+    log.info(f"[parse] First 500 chars: {text[:500]}")
+
     json_match = re.search(r"\{[\s\S]*?\"cadence_version\"[\s\S]*?\}", text)
     if json_match:
         raw = json_match.group(0)
@@ -173,6 +188,7 @@ def _parse_user_input(text: str) -> tuple[str | None, str]:
             prompt = "Write based on the provided voice profile."
             profile_text = text
 
+        log.info(f"[parse] Profile content detected! Profile text: {len(profile_text)} chars, Prompt: {prompt[:100]}")
         profile_json = json.dumps({
             "cadence_version": "1.0",
             "fingerprint_type": "raw_text",
@@ -187,6 +203,7 @@ def _parse_user_input(text: str) -> tuple[str | None, str]:
         })
         return profile_json, prompt
 
+    log.info("[parse] No profile detected — treating as plain prompt")
     return None, text.strip()
 
 
@@ -250,6 +267,41 @@ _EMPTY_FP = json.dumps({
 })
 
 
+# ── Resource extraction ──
+
+def _extract_resource_text(ctx: Context, item: ResourceContent) -> str:
+    """Download a ResourceContent item and extract text from it."""
+    resources = item.resource if isinstance(item.resource, list) else [item.resource]
+    parts = []
+    for res in resources:
+        uri = res.uri
+        meta = res.metadata
+        ctx.logger.info(f"  Resource URI: {uri}")
+        ctx.logger.info(f"  Resource metadata: {meta}")
+        try:
+            resp = httpx.get(uri, timeout=30, follow_redirects=True)
+            resp.raise_for_status()
+            content_type = resp.headers.get("content-type", "")
+            ctx.logger.info(f"  Fetched {len(resp.content)} bytes, content-type: {content_type}")
+
+            if "pdf" in content_type or uri.lower().endswith(".pdf"):
+                try:
+                    import fitz  # PyMuPDF
+                    doc = fitz.open(stream=resp.content, filetype="pdf")
+                    pdf_text = "\n".join(page.get_text() for page in doc)
+                    doc.close()
+                    ctx.logger.info(f"  Extracted {len(pdf_text)} chars from PDF")
+                    parts.append(pdf_text)
+                except ImportError:
+                    ctx.logger.warning("  PyMuPDF not installed, falling back to raw text")
+                    parts.append(resp.text)
+            else:
+                parts.append(resp.text)
+        except Exception as e:
+            ctx.logger.error(f"  Failed to fetch resource: {e}")
+    return "\n".join(parts)
+
+
 # ── Chat Protocol handlers (user-facing) ──
 
 @chat_proto.on_message(ChatMessage)
@@ -257,15 +309,42 @@ async def handle_chat(ctx: Context, sender: str, msg: ChatMessage):
     if sender in sessions:
         return
 
+    ctx.logger.info(f"Received ChatMessage from {sender[:30]}...")
+    ctx.logger.info(f"Content items: {len(msg.content)}")
+    for i, item in enumerate(msg.content):
+        ctx.logger.info(f"  [{i}] type={item.type}, class={type(item).__name__}")
+
     text = ""
+    resource_text = ""
     for item in msg.content:
         if isinstance(item, TextContent):
             text += item.text
+        elif isinstance(item, ResourceContent):
+            resource_text += _extract_resource_text(ctx, item)
 
     if not text.strip() or len(text) < 10:
         return
 
-    cadence_json, prompt = _parse_user_input(text)
+    if resource_text.strip():
+        ctx.logger.info(f"Resource text extracted: {len(resource_text)} chars")
+        ctx.logger.info(f"Resource first 300: {resource_text[:300]}")
+        prompt = text.strip()
+        profile_json = json.dumps({
+            "cadence_version": "1.0",
+            "fingerprint_type": "raw_text",
+            "profile": {
+                "raw_profile_text": resource_text,
+                "writing_rules": [],
+                "metrics": {},
+                "signature_phrases": [],
+                "avoided_patterns": [],
+                "exemplar_passages": [],
+            },
+        })
+        cadence_json = profile_json
+    else:
+        cadence_json, prompt = _parse_user_input(text)
+
     if not prompt or len(prompt) < 10:
         return
 
