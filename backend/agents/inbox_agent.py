@@ -313,6 +313,34 @@ async def scan_inbox(send: callable) -> list[dict]:
         return []
 
 
+def _prepare_reply_for_browser(text: str) -> tuple[str, list[str]]:
+    """Split reply into paragraphs for Browser Use to type with Enter presses.
+    Returns (instruction_text, paragraphs).
+    """
+    t = text
+    # Normalize broken escape sequences first
+    t = t.replace('\\n', '\n')
+    t = t.replace('/n', '\n')
+    t = t.replace('\r\n', '\n')
+    t = t.replace('\r', '\n')
+
+    # Split into paragraphs on double newlines (or more)
+    raw_paras = re.split(r'\n{2,}', t)
+    paragraphs = [re.sub(r'\s+', ' ', p).strip() for p in raw_paras if p.strip()]
+
+    if len(paragraphs) <= 1:
+        return paragraphs[0] if paragraphs else text.strip(), paragraphs
+
+    # Build numbered instruction
+    lines = []
+    for i, p in enumerate(paragraphs):
+        lines.append(f"  Paragraph {i+1}: {p}")
+        if i < len(paragraphs) - 1:
+            lines.append(f"  [Then press Enter TWICE to make a new paragraph]")
+
+    return '\n'.join(lines), paragraphs
+
+
 async def send_reply_in_gmail(
     sender: str,
     subject: str,
@@ -331,15 +359,33 @@ async def send_reply_in_gmail(
         })
         return False
 
+    formatted_reply, paragraphs = _prepare_reply_for_browser(reply_text)
+    has_paragraphs = len(paragraphs) > 1
+
     reply_task = (
         f"You are in Gmail. Follow these steps to reply to an email:\n"
         f"1. Click the search bar at the top of Gmail.\n"
         f"2. Search for: from:{sender} subject:{subject}\n"
         f"3. Click on the matching email to open it.\n"
         f"4. Click the 'Reply' button at the bottom of the email.\n"
-        f"5. In the reply text box, type EXACTLY this message (do not add anything extra):\n\n"
-        f"{reply_text}\n\n"
-        f"6. Click the 'Send' button to send the reply.\n"
+        f"5. In the reply text box, type the following message.\n"
+    )
+
+    if has_paragraphs:
+        reply_task += (
+            f"   IMPORTANT: This message has {len(paragraphs)} paragraphs. "
+            f"Type each paragraph, then press Enter TWICE before typing the next one. "
+            f"Do NOT type '/n' or '\\n' — press the actual Enter key.\n\n"
+            f"{formatted_reply}\n\n"
+        )
+    else:
+        reply_task += (
+            f"   Type EXACTLY this (do not add anything extra, do not type /n or \\n):\n\n"
+            f"   {formatted_reply}\n\n"
+        )
+
+    reply_task += (
+        f"6. After typing the complete message, click the 'Send' button.\n"
         f"7. Confirm the reply was sent successfully.\n"
         f"Report SUCCESS if the reply was sent, or FAILED if something went wrong."
     )
