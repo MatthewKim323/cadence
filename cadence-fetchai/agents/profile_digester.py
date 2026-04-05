@@ -7,15 +7,16 @@ from uagents import Agent, Context, Protocol
 
 from protocols.messages import DigestRequest, DigestResult
 
-digester_agent = Agent(
+_agent_kw: dict = dict(
     name="Cadence Profile Digester",
     seed=os.getenv("DIGESTER_SEED", "cadence-profile-digester-seed-v1"),
     port=8002,
-    endpoint=["http://127.0.0.1:8002/submit"],
     mailbox=True,
     publish_agent_details=True,
-    network="testnet",
 )
+if os.getenv("AGENT_SETUP_MODE"):
+    _agent_kw["endpoint"] = ["http://127.0.0.1:8002/submit"]
+digester_agent = Agent(**_agent_kw)
 
 proto = Protocol(name="digester")
 

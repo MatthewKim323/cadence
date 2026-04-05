@@ -31,6 +31,7 @@ for i, (label, module, var, port) in enumerate(AGENTS, 1):
 
     agent_script = f"""
 import os, sys
+os.environ["AGENT_SETUP_MODE"] = "1"
 sys.path.insert(0, os.path.dirname(os.path.abspath("{__file__}")).replace("setup_mailboxes.py", ""))
 os.chdir("{os.getcwd()}")
 from dotenv import load_dotenv

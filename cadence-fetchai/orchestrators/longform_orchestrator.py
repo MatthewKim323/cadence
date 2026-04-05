@@ -145,25 +145,33 @@ def _parse_user_input(text: str) -> tuple[str | None, str]:
     return None, text.strip()
 
 
+_status_logs: dict[str, list[str]] = {}
+
+
 async def _status(ctx: Context, user_addr: str, text: str):
+    _status_logs.setdefault(user_addr, []).append(text)
+    full_log = "\n".join(f"→ {line}" for line in _status_logs[user_addr])
     await ctx.send(
         user_addr,
         ChatMessage(
             timestamp=datetime.utcnow(),
             msg_id=uuid4(),
-            content=[TextContent(type="text", text=text)],
+            content=[TextContent(type="text", text=full_log)],
         ),
     )
 
 
 async def _finish(ctx: Context, user_addr: str, text: str, session_id: str):
+    log = _status_logs.pop(user_addr, [])
+    log_section = "\n".join(f"→ {line}" for line in log)
+    full_text = f"{log_section}\n\n---\n\n{text}"
     await ctx.send(
         user_addr,
         ChatMessage(
             timestamp=datetime.utcnow(),
             msg_id=uuid4(),
             content=[
-                TextContent(type="text", text=text),
+                TextContent(type="text", text=full_text),
                 EndSessionContent(type="end-session"),
             ],
         ),
@@ -173,15 +181,19 @@ async def _finish(ctx: Context, user_addr: str, text: str, session_id: str):
 
 # ── Agent ──
 
-longform_agent = Agent(
+_README_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "README.md")
+
+_agent_kw: dict = dict(
     name="Cadence Long-Form Orchestrator",
     seed=os.getenv("ORCHESTRATOR_SEED", "cadence-longform-orchestrator-seed-v1"),
     port=8001,
-    endpoint=["http://127.0.0.1:8001/submit"],
     mailbox=True,
     publish_agent_details=True,
-    network="testnet",
+    readme_path=_README_PATH,
 )
+if os.getenv("AGENT_SETUP_MODE"):
+    _agent_kw["endpoint"] = ["http://127.0.0.1:8001/submit"]
+longform_agent = Agent(**_agent_kw)
 
 chat_proto = Protocol(spec=chat_protocol_spec)
 internal_proto = Protocol(name="longform-internal")
@@ -196,6 +208,7 @@ _EMPTY_FP = json.dumps({
 
 @chat_proto.on_message(ChatMessage)
 async def handle_chat(ctx: Context, sender: str, msg: ChatMessage):
+    ctx.logger.info(f"Received ChatMessage from {sender[:20]}...")
     await ctx.send(
         sender,
         ChatAcknowledgement(timestamp=datetime.now(), acknowledged_msg_id=msg.msg_id),
@@ -206,6 +219,8 @@ async def handle_chat(ctx: Context, sender: str, msg: ChatMessage):
         if isinstance(item, TextContent):
             text += item.text
 
+    ctx.logger.info(f"User text: {text[:100]}...")
+
     if not text.strip():
         await _status(ctx, sender, "Please provide a writing prompt (and optionally a .cadence profile).")
         return
@@ -215,6 +230,8 @@ async def handle_chat(ctx: Context, sender: str, msg: ChatMessage):
     if not prompt:
         await _status(ctx, sender, "Couldn't find a writing prompt. Please include what you'd like me to write.")
         return
+
+    ctx.logger.info(f"Prompt: {prompt[:80]}... | Has cadence: {cadence_json is not None}")
 
     sid = sender
     sessions[sid] = {

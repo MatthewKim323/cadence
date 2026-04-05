@@ -150,15 +150,16 @@ async def _run_once(clean_text: str, sentences: list[str]) -> dict:
 
 # ── Agent ──
 
-zerogpt_agent = Agent(
+_agent_kw: dict = dict(
     name="Cadence ZeroGPT Detector",
     seed=os.getenv("ZEROGPT_SEED", "cadence-zerogpt-detector-seed-v1"),
     port=8004,
-    endpoint=["http://127.0.0.1:8004/submit"],
     mailbox=True,
     publish_agent_details=True,
-    network="testnet",
 )
+if os.getenv("AGENT_SETUP_MODE"):
+    _agent_kw["endpoint"] = ["http://127.0.0.1:8004/submit"]
+zerogpt_agent = Agent(**_agent_kw)
 
 proto = Protocol(name="zerogpt-detector")
 

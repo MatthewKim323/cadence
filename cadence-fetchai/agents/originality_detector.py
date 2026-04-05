@@ -153,15 +153,16 @@ async def _run_once(clean_text: str, sentences: list[str]) -> dict:
 
 # ── Agent ──
 
-originality_agent = Agent(
+_agent_kw: dict = dict(
     name="Cadence Originality Detector",
     seed=os.getenv("ORIGINALITY_SEED", "cadence-originality-detector-seed-v1"),
     port=8005,
-    endpoint=["http://127.0.0.1:8005/submit"],
     mailbox=True,
     publish_agent_details=True,
-    network="testnet",
 )
+if os.getenv("AGENT_SETUP_MODE"):
+    _agent_kw["endpoint"] = ["http://127.0.0.1:8005/submit"]
+originality_agent = Agent(**_agent_kw)
 
 proto = Protocol(name="originality-detector")
 

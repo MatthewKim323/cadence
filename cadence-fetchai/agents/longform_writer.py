@@ -113,15 +113,16 @@ def _call_claude(user_message: str) -> str:
 
 # ── Agent ──
 
-writer_agent = Agent(
+_agent_kw: dict = dict(
     name="Cadence Long-Form Writer",
     seed=os.getenv("WRITER_SEED", "cadence-longform-writer-seed-v1"),
     port=8003,
-    endpoint=["http://127.0.0.1:8003/submit"],
     mailbox=True,
     publish_agent_details=True,
-    network="testnet",
 )
+if os.getenv("AGENT_SETUP_MODE"):
+    _agent_kw["endpoint"] = ["http://127.0.0.1:8003/submit"]
+writer_agent = Agent(**_agent_kw)
 
 proto = Protocol(name="longform-writer")
 
