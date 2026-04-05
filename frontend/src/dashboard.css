@@ -8,6 +8,26 @@
   background: var(--bg);
   color: var(--text);
   overflow: hidden;
+  position: relative;
+}
+
+.db-dither-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.18;
+}
+
+.db-dither-bg canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.db-layout > .db-sidebar,
+.db-layout > .db-main {
+  position: relative;
+  z-index: 1;
 }
 
 .db-layout--fullscreen {
@@ -22,7 +42,7 @@
   flex-direction: column;
   height: 100vh;
   border-right: 1px solid var(--border);
-  background: var(--bg);
+  background: rgba(0, 0, 0, 0.85);
   overflow: hidden;
 }
 

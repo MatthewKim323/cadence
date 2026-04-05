@@ -12,6 +12,7 @@ import { DetectionDeepDive } from '../components/dashboard/DetectionDeepDive'
 import { CommsReplyQueue } from '../components/dashboard/CommsReplyQueue'
 import { ProfileDropdown } from '../components/ProfileDropdown'
 import { VoiceInterviewModal } from '../components/VoiceInterviewModal'
+import Dither from '../components/Dither'
 import '../dashboard.css'
 
 type Studio = 'writing' | 'comms'
@@ -105,6 +106,19 @@ export function Dashboard() {
 
   return (
     <div className={`db-layout ${isFullscreen ? 'db-layout--fullscreen' : ''}`}>
+      <div className="db-dither-bg">
+        <Dither
+          waveColor={[0.5, 0.5, 0.5]}
+          disableAnimation={false}
+          enableMouseInteraction
+          mouseRadius={0.3}
+          colorNum={4}
+          waveAmplitude={0.3}
+          waveFrequency={3}
+          waveSpeed={0.05}
+        />
+      </div>
+
       {!isFullscreen && (
         <Sidebar
           activeStudio={activeStudio}
