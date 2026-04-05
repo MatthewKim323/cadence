@@ -65,11 +65,12 @@ const MOCK_COMMS_PROFILE = {
 }
 
 interface Props {
-  docCount: number
+  writingDocCount: number
+  commDocCount: number
   categories: string[]
 }
 
-export function VoiceProfile({ docCount, categories }: Props) {
+export function VoiceProfile({ writingDocCount, commDocCount, categories }: Props) {
   const { user } = useAuth()
 
   const exportProfile = (type: 'writing' | 'communication') => {
@@ -77,8 +78,10 @@ export function VoiceProfile({ docCount, categories }: Props) {
     profile.user_display_name = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User'
     profile.exported_at = new Date().toISOString()
     if (type === 'writing') {
-      (profile as typeof MOCK_WRITING_PROFILE).profile.source_document_count = docCount
+      (profile as typeof MOCK_WRITING_PROFILE).profile.source_document_count = writingDocCount
       ;(profile as typeof MOCK_WRITING_PROFILE).profile.source_categories = categories
+    } else {
+      (profile as typeof MOCK_COMMS_PROFILE).profile.source_email_count = commDocCount
     }
 
     const blob = new Blob([JSON.stringify(profile, null, 2)], { type: 'application/json' })
@@ -103,7 +106,7 @@ export function VoiceProfile({ docCount, categories }: Props) {
           <span>writing</span>
         </div>
         <div className="db-vp-stats">
-          <span>{docCount} docs analyzed</span>
+          <span>{writingDocCount} docs analyzed</span>
           <span>directness: 0.82</span>
         </div>
         <button className="db-vp-export" onClick={() => exportProfile('writing')}>
@@ -120,8 +123,8 @@ export function VoiceProfile({ docCount, categories }: Props) {
           <span>communication</span>
         </div>
         <div className="db-vp-stats">
+          <span>{commDocCount} emails analyzed</span>
           <span>peer: 0.3</span>
-          <span>manager: 0.55</span>
         </div>
         <button className="db-vp-export" onClick={() => exportProfile('communication')}>
           export comms.cadence

@@ -12,9 +12,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from supabase import create_client
 
 from pipeline import run_writing_pipeline
-from comms_pipeline import run_comms_pipeline, run_compose
+from comms_pipeline import run_comms_pipeline
 from agents.detector_squad import cleanup_all_sessions
-from agents.inbox_agent import cleanup_inbox_session
+from agents.inbox_agent import cleanup_inbox_session, send_reply_in_gmail
 
 
 class PipelineCancelled(Exception):
@@ -132,6 +132,18 @@ async def comms_ws(ws: WebSocket):
     await ws.accept()
     log.info("Comms WebSocket accepted")
 
+    disconnected = False
+
+    async def send(msg: dict):
+        nonlocal disconnected
+        if disconnected:
+            raise PipelineCancelled()
+        try:
+            await ws.send_json(msg)
+        except Exception:
+            disconnected = True
+            raise PipelineCancelled()
+
     try:
         raw = await ws.receive_text()
         payload = json.loads(raw)
@@ -156,83 +168,77 @@ async def comms_ws(ws: WebSocket):
 
         log.info(f"Starting comms pipeline for user {user_id} with {len(document_ids)} docs")
 
-        disconnected = False
-
-        async def send(msg: dict):
-            nonlocal disconnected
-            if disconnected:
-                raise PipelineCancelled()
-            try:
-                await ws.send_json(msg)
-            except Exception:
-                disconnected = True
-                raise PipelineCancelled()
-
         await run_comms_pipeline(
             document_ids=document_ids,
             user_id=user_id,
             send=send,
         )
 
-        log.info("Comms pipeline completed")
+        log.info("Comms pipeline completed — waiting for user actions")
+
+        # Keep connection open for send_reply actions
+        while True:
+            try:
+                raw_msg = await ws.receive_text()
+                msg = json.loads(raw_msg)
+                action = msg.get("action", "")
+
+                if action == "send_reply":
+                    reply_id = msg.get("reply_id", "")
+                    sender = msg.get("sender", "")
+                    subject = msg.get("subject", "")
+                    reply_text = msg.get("reply_text", "")
+
+                    log.info(f"Send reply action — to: {sender}, subject: {subject}")
+
+                    success = await send_reply_in_gmail(
+                        sender=sender,
+                        subject=subject,
+                        reply_text=reply_text,
+                        send=send,
+                    )
+
+                    if success:
+                        await send({
+                            "type": "reply_sent",
+                            "id": reply_id,
+                            "sender": sender,
+                        })
+                    else:
+                        await send({
+                            "type": "reply_failed",
+                            "id": reply_id,
+                            "sender": sender,
+                            "reason": "Browser agent could not complete the reply",
+                        })
+
+            except WebSocketDisconnect:
+                log.info("Comms client disconnected during action phase")
+                break
+            except json.JSONDecodeError:
+                continue
+            except PipelineCancelled:
+                break
+            except Exception as e:
+                log.error(f"Comms action error: {e}")
+                break
 
     except PipelineCancelled:
         log.info("Comms pipeline cancelled, cleaning up...")
-        await cleanup_inbox_session()
     except WebSocketDisconnect:
         log.info("Comms client disconnected, cleaning up...")
-        await cleanup_inbox_session()
     except Exception as e:
         log.error(f"Comms exception: {e}\n{traceback.format_exc()}")
-        await cleanup_inbox_session()
         try:
             await ws.send_json({"type": "error", "message": str(e)})
         except Exception:
             pass
     finally:
+        await cleanup_inbox_session()
         try:
             await ws.close()
         except Exception:
             pass
-
-
-@app.post("/api/compose")
-async def compose_endpoint(request: Request):
-    """REST endpoint for compose mode. Returns a voice-matched email draft."""
-    from fastapi.responses import JSONResponse
-
-    body = await request.json()
-    auth_token = body.get("auth_token", "")
-    document_ids = body.get("document_ids", [])
-    recipient = body.get("recipient", "")
-    relationship = body.get("relationship", "peer")
-    intent = body.get("intent", "")
-
-    user_id = _verify_token(auth_token)
-    if not user_id:
-        return JSONResponse({"error": "Authentication failed."}, status_code=401)
-
-    if not intent:
-        return JSONResponse({"error": "No intent provided."}, status_code=400)
-
-    logs: list[dict] = []
-
-    async def send(msg: dict):
-        logs.append(msg)
-
-    try:
-        draft = await run_compose(
-            document_ids=document_ids,
-            user_id=user_id,
-            recipient=recipient,
-            relationship=relationship,
-            intent=intent,
-            send=send,
-        )
-        return {"draft": draft, "logs": logs}
-    except Exception as e:
-        log.error(f"Compose failed: {e}\n{traceback.format_exc()}")
-        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 @app.get("/health")

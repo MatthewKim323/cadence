@@ -9,105 +9,138 @@ from browser_use_sdk import AsyncBrowserUse
 
 log = logging.getLogger("cadence")
 
-TASK_TIMEOUT_SECONDS = 240
+TASK_TIMEOUT_SECONDS = 180
 
-INBOX_TASK = (
-    "You are on Gmail. Follow these steps:\n"
-    "1. You should already be logged in. If you see the inbox, proceed. "
-    "If you see a login page, report that login is required.\n"
-    "2. Look at the inbox. Find unread emails (they appear in bold).\n"
-    "3. For each unread email (up to 8), click on it to open it and read:\n"
-    "   - The sender's name\n"
-    "   - The subject line\n"
-    "   - The full email body text\n"
-    "   Then press the back button to return to the inbox and open the next one.\n"
-    "4. Skip emails that are clearly:\n"
-    "   - Newsletters or marketing (unsubscribe links, promotional content)\n"
-    "   - Automated notifications (GitHub, Google alerts, shipping updates)\n"
-    "   - Spam\n"
-    "   These don't need replies.\n"
-    "5. After reading all unread emails, return your findings in this EXACT format:\n"
-    "   EMAILS_START\n"
-    "   ---\n"
-    "   sender: [sender name]\n"
-    "   subject: [subject line]\n"
-    "   body: [full email body text]\n"
-    "   needs_reply: yes\n"
-    "   ---\n"
-    "   sender: [sender name]\n"
-    "   subject: [subject line]\n"
-    "   body: [full email body text]\n"
-    "   needs_reply: no\n"
-    "   reason: newsletter\n"
-    "   ---\n"
-    "   EMAILS_END\n\n"
-    "   Include ALL emails you found, marking each as needs_reply: yes or no.\n"
-    "   For emails that don't need a reply, include a reason (newsletter, notification, spam)."
+# Task 1: Just list what's in the unread inbox (simple, reliable)
+LIST_TASK = (
+    "You are on Gmail. Do these steps:\n"
+    "1. Click the search bar at the top of Gmail.\n"
+    "2. Type exactly: is:unread\n"
+    "3. Press Enter to search.\n"
+    "4. Look at the search results. For each email you see, note the sender name and subject line.\n"
+    "5. Return a numbered list of ALL emails you see, in this exact format:\n"
+    "LIST_START\n"
+    "1. sender: [name] | subject: [subject]\n"
+    "2. sender: [name] | subject: [subject]\n"
+    "3. sender: [name] | subject: [subject]\n"
+    "LIST_END\n"
+    "Include every email visible. Do not skip any."
 )
 
+# Task 2 template: Open a specific email and read it (one at a time)
+READ_TEMPLATE = (
+    "You are on Gmail looking at search results for unread emails. "
+    "Find and click on the email from '{sender}' with subject containing '{subject}'. "
+    "Once the email is open, read the FULL body text carefully. Scroll down if needed. "
+    "Then return the result in this EXACT format:\n"
+    "EMAIL_START\n"
+    "sender: {sender}\n"
+    "subject: {subject}\n"
+    "body: [paste the FULL email body here, every word]\n"
+    "EMAIL_END\n"
+    "After returning the result, click the back arrow to return to the search results."
+)
 
-def _parse_inbox_output(raw: str) -> list[dict]:
-    """Parse the structured email output from the Browser Use agent."""
+# Module-level state for session reuse
+_active_client: AsyncBrowserUse | None = None
+_active_session_id: str | None = None
+
+
+def _parse_email_list(raw: str) -> list[dict]:
+    """Parse the numbered list of sender | subject from LIST task."""
     emails = []
+    start = re.search(r'LIST_START', raw, re.IGNORECASE)
+    end = re.search(r'LIST_END', raw, re.IGNORECASE)
 
-    # Find the EMAILS_START/END block
-    start_match = re.search(r'EMAILS_START', raw, re.IGNORECASE)
-    end_match = re.search(r'EMAILS_END', raw, re.IGNORECASE)
+    block = raw[start.end():end.start()] if start and end else raw
 
-    if start_match and end_match:
-        block = raw[start_match.end():end_match.start()]
-    else:
-        block = raw
-
-    # Split by --- delimiter
-    chunks = re.split(r'\n---\n', block)
-
-    for chunk in chunks:
-        chunk = chunk.strip()
-        if not chunk:
+    for line in block.strip().split('\n'):
+        line = line.strip()
+        if not line:
             continue
-
-        email = {}
-        for line in chunk.split('\n'):
-            line = line.strip()
-            if ':' in line:
-                key, _, value = line.partition(':')
-                key = key.strip().lower()
-                value = value.strip()
-                if key in ('sender', 'subject', 'needs_reply', 'reason'):
-                    email[key] = value
-                elif key == 'body':
-                    email['body'] = value
-
-        # Also try to capture multi-line body
-        body_match = re.search(r'body:\s*(.+?)(?=\n(?:needs_reply|reason|sender|subject|---)|$)',
-                               chunk, re.DOTALL | re.IGNORECASE)
-        if body_match:
-            email['body'] = body_match.group(1).strip()
-
-        if email.get('sender') and email.get('subject'):
-            email.setdefault('needs_reply', 'yes')
-            email.setdefault('body', '')
-            emails.append(email)
+        # Match patterns like "1. sender: Name | subject: Subj"
+        m = re.match(
+            r'\d+\.\s*sender:\s*(.+?)\s*\|\s*subject:\s*(.+)',
+            line, re.IGNORECASE,
+        )
+        if m:
+            emails.append({
+                'sender': m.group(1).strip(),
+                'subject': m.group(2).strip(),
+            })
 
     return emails
 
 
-async def scan_inbox(send: callable) -> list[dict]:
-    """Create a Browser Use session on Gmail, read unread emails,
-    return list of email contexts that need replies.
+def _parse_single_email(raw: str, fallback_sender: str, fallback_subject: str) -> dict:
+    """Parse the body from a single READ task."""
+    start = re.search(r'EMAIL_START', raw, re.IGNORECASE)
+    end = re.search(r'EMAIL_END', raw, re.IGNORECASE)
 
-    Sends browser_url and progress updates via `send`.
+    block = raw[start.end():end.start()] if start and end else raw
+
+    body = ""
+    body_match = re.search(
+        r'body:\s*(.+?)(?=\nEMAIL_END|$)',
+        block, re.DOTALL | re.IGNORECASE,
+    )
+    if body_match:
+        body = body_match.group(1).strip()
+
+    if not body:
+        # Fallback: just grab everything after "body:"
+        for line in block.split('\n'):
+            if line.strip().lower().startswith('body:'):
+                body = line.partition(':')[2].strip()
+                break
+
+    return {
+        'sender': fallback_sender,
+        'subject': fallback_subject,
+        'body': body or "(could not extract body)",
+        'needs_reply': 'yes',
+    }
+
+
+def _should_skip(sender: str, subject: str) -> bool:
+    """Quick filter for obvious non-reply emails based on sender/subject."""
+    lower_subj = subject.lower()
+    lower_sender = sender.lower()
+
+    skip_subjects = [
+        'unsubscribe', 'newsletter', 'weekly digest', 'daily digest',
+        'your order', 'shipping update', 'delivery notification',
+        'password reset', 'verify your email', 'security alert',
+        'no-reply', 'noreply', 'do not reply', 'donotreply',
+    ]
+    skip_senders = [
+        'noreply', 'no-reply', 'mailer-daemon', 'postmaster',
+        'notifications@', 'updates@', 'news@', 'marketing@',
+        'donotreply', 'do-not-reply',
+    ]
+
+    for s in skip_subjects:
+        if s in lower_subj:
+            return True
+    for s in skip_senders:
+        if s in lower_sender:
+            return True
+
+    return False
+
+
+async def scan_inbox(send: callable) -> list[dict]:
+    """Scan Gmail inbox using multiple small tasks for reliability.
+    Emails are yielded progressively via `send` as they're discovered.
+    Returns the full list at the end.
     """
+    global _active_client, _active_session_id
+
     api_key = os.getenv("BROWSER_USE_API_KEY", "")
     profile_id = os.getenv("GMAIL_PROFILE_ID", "")
-    client = AsyncBrowserUse(api_key=api_key)
-
-    session = None
-    session_id = None
 
     if not profile_id:
-        log.error("[inbox] GMAIL_PROFILE_ID not set — run setup_gmail_profile.py first")
+        log.error("[inbox] GMAIL_PROFILE_ID not set")
         await send({
             "type": "agent_log",
             "agent": "inbox",
@@ -115,79 +148,160 @@ async def scan_inbox(send: callable) -> list[dict]:
         })
         return []
 
+    client = AsyncBrowserUse(api_key=api_key)
+    _active_client = client
+
     try:
         session = await client.sessions.create_session(
             keep_alive=True,
             start_url="https://mail.google.com",
             profile_id=profile_id,
         )
-        session_id = session.id
+        _active_session_id = session.id
         live_url = session.live_url or ""
 
-        log.info(f"[inbox] Session created: {session_id}")
+        log.info(f"[inbox] Session created: {_active_session_id}")
 
         await send({
             "type": "agent_log",
             "agent": "inbox",
-            "text": "gmail session created, scanning inbox..."
+            "text": "gmail session created"
         })
+        await send({"type": "browser_url", "url": live_url})
 
+        # --- TASK 1: List unread emails ---
         await send({
-            "type": "browser_url",
-            "url": live_url,
+            "type": "agent_log",
+            "agent": "inbox",
+            "text": "searching for unread emails..."
         })
 
-        task = await client.tasks.create_task(
-            task=INBOX_TASK,
+        list_task = await client.tasks.create_task(
+            task=LIST_TASK,
             llm="browser-use-llm",
-            session_id=session_id,
+            session_id=_active_session_id,
         )
 
-        log.info(f"[inbox] Task created, waiting (timeout={TASK_TIMEOUT_SECONDS}s)...")
-
         try:
-            result = await asyncio.wait_for(
-                task.complete(interval=2),
+            list_result = await asyncio.wait_for(
+                list_task.complete(interval=2),
                 timeout=TASK_TIMEOUT_SECONDS,
             )
         except asyncio.TimeoutError:
-            log.warning(f"[inbox] Task timed out after {TASK_TIMEOUT_SECONDS}s")
+            log.warning("[inbox] List task timed out")
             await send({
                 "type": "agent_log",
                 "agent": "inbox",
-                "text": f"inbox scan timed out after {TASK_TIMEOUT_SECONDS}s"
+                "text": "inbox scan timed out"
             })
             return []
 
-        raw_output = result.output or ""
-        log.info(f"[inbox] Done. output:\n{raw_output[:1000]}")
+        raw_list = list_result.output or ""
+        log.info(f"[inbox] List output:\n{raw_list[:1500]}")
 
-        all_emails = _parse_inbox_output(raw_output)
+        email_list = _parse_email_list(raw_list)
+        log.info(f"[inbox] Parsed {len(email_list)} emails from list")
 
-        # Filter to only emails that need replies
-        reply_emails = [
-            e for e in all_emails
-            if e.get("needs_reply", "").lower() in ("yes", "true", "1")
-        ]
-        skipped = len(all_emails) - len(reply_emails)
+        if not email_list:
+            await send({
+                "type": "agent_log",
+                "agent": "inbox",
+                "text": f"no unread emails found. raw output: {raw_list[:300]}"
+            })
+            return []
+
+        # Filter out obvious non-reply emails
+        actionable = []
+        for e in email_list:
+            if _should_skip(e['sender'], e['subject']):
+                await send({
+                    "type": "agent_log",
+                    "agent": "inbox",
+                    "text": f"skipping: {e['sender']} — {e['subject']}"
+                })
+            else:
+                actionable.append(e)
 
         await send({
             "type": "agent_log",
             "agent": "inbox",
-            "text": f"found {len(all_emails)} emails, {len(reply_emails)} need replies ({skipped} skipped)"
+            "text": f"found {len(email_list)} unread, {len(actionable)} need replies"
         })
 
-        # Send progress for each found email
-        for i, email in enumerate(reply_emails):
+        # Send email_found for each one immediately
+        for i, e in enumerate(actionable):
             await send({
                 "type": "email_found",
-                "sender": email.get("sender", "Unknown"),
-                "subject": email.get("subject", ""),
+                "sender": e['sender'],
+                "subject": e['subject'],
                 "index": i,
-                "total": len(reply_emails),
+                "total": len(actionable),
             })
 
-        return reply_emails
+        # --- TASK 2+: Read each email one at a time ---
+        full_emails = []
+        for i, e in enumerate(actionable):
+            await send({
+                "type": "agent_log",
+                "agent": "inbox",
+                "text": f"reading email {i+1}/{len(actionable)}: {e['sender']}"
+            })
+
+            read_task_str = READ_TEMPLATE.format(
+                sender=e['sender'],
+                subject=e['subject'],
+            )
+
+            try:
+                read_task = await client.tasks.create_task(
+                    task=read_task_str,
+                    llm="browser-use-llm",
+                    session_id=_active_session_id,
+                )
+
+                read_result = await asyncio.wait_for(
+                    read_task.complete(interval=2),
+                    timeout=TASK_TIMEOUT_SECONDS,
+                )
+
+                raw_email = read_result.output or ""
+                log.info(f"[inbox] Email {i+1} output:\n{raw_email[:800]}")
+
+                parsed = _parse_single_email(raw_email, e['sender'], e['subject'])
+                full_emails.append(parsed)
+
+                # Send immediately so frontend can start showing it
+                await send({
+                    "type": "email_read",
+                    "sender": parsed['sender'],
+                    "subject": parsed['subject'],
+                    "body": parsed['body'],
+                    "index": i,
+                    "total": len(actionable),
+                })
+
+            except asyncio.TimeoutError:
+                log.warning(f"[inbox] Read task {i+1} timed out")
+                await send({
+                    "type": "agent_log",
+                    "agent": "inbox",
+                    "text": f"timed out reading email from {e['sender']}"
+                })
+            except Exception as ex:
+                log.error(f"[inbox] Read task {i+1} failed: {ex}")
+                await send({
+                    "type": "agent_log",
+                    "agent": "inbox",
+                    "text": f"failed to read email from {e['sender']}: {str(ex)[:100]}"
+                })
+
+        await send({
+            "type": "agent_log",
+            "agent": "inbox",
+            "text": f"finished reading {len(full_emails)} emails"
+        })
+
+        return full_emails
 
     except Exception as e:
         log.error(f"[inbox] Failed: {e}")
@@ -198,30 +312,109 @@ async def scan_inbox(send: callable) -> list[dict]:
         })
         return []
 
-    finally:
-        if session_id:
-            try:
-                # Use stop() instead of delete() to persist profile cookies/login
-                await client.sessions.stop(session_id)
-                log.info(f"[inbox] Session {session_id} stopped (profile state saved)")
-            except Exception:
-                try:
-                    await client.sessions.delete_session(session_id)
-                    log.info(f"[inbox] Session {session_id} deleted (fallback)")
-                except Exception:
-                    pass
+
+async def send_reply_in_gmail(
+    sender: str,
+    subject: str,
+    reply_text: str,
+    send: callable,
+) -> bool:
+    """Use the still-alive Browser Use session to reply to an email in Gmail."""
+    global _active_client, _active_session_id
+
+    if not _active_client or not _active_session_id:
+        log.error("[inbox] No active session for sending replies")
+        await send({
+            "type": "agent_log",
+            "agent": "inbox",
+            "text": "No active Gmail session. Cannot send reply."
+        })
+        return False
+
+    reply_task = (
+        f"You are in Gmail. Follow these steps to reply to an email:\n"
+        f"1. Click the search bar at the top of Gmail.\n"
+        f"2. Search for: from:{sender} subject:{subject}\n"
+        f"3. Click on the matching email to open it.\n"
+        f"4. Click the 'Reply' button at the bottom of the email.\n"
+        f"5. In the reply text box, type EXACTLY this message (do not add anything extra):\n\n"
+        f"{reply_text}\n\n"
+        f"6. Click the 'Send' button to send the reply.\n"
+        f"7. Confirm the reply was sent successfully.\n"
+        f"Report SUCCESS if the reply was sent, or FAILED if something went wrong."
+    )
+
+    try:
+        await send({
+            "type": "agent_log",
+            "agent": "inbox",
+            "text": f"sending reply to {sender}..."
+        })
+
+        task = await _active_client.tasks.create_task(
+            task=reply_task,
+            llm="browser-use-llm",
+            session_id=_active_session_id,
+        )
+
+        result = await asyncio.wait_for(
+            task.complete(interval=2),
+            timeout=TASK_TIMEOUT_SECONDS,
+        )
+
+        output = (result.output or "").upper()
+        success = "SUCCESS" in output and "FAILED" not in output
+
+        log.info(f"[inbox] Reply task done. Success={success}. Output: {result.output[:300]}")
+
+        return success
+
+    except asyncio.TimeoutError:
+        log.warning("[inbox] Reply task timed out")
+        await send({
+            "type": "agent_log",
+            "agent": "inbox",
+            "text": f"reply to {sender} timed out"
+        })
+        return False
+    except Exception as e:
+        log.error(f"[inbox] Reply failed: {e}")
+        await send({
+            "type": "agent_log",
+            "agent": "inbox",
+            "text": f"reply failed: {str(e)[:150]}"
+        })
+        return False
 
 
 async def cleanup_inbox_session():
-    """Sweep any lingering inbox sessions (stop to preserve profile state)."""
+    """Stop the active inbox session (persists profile state)."""
+    global _active_client, _active_session_id
+
+    if _active_client and _active_session_id:
+        try:
+            await _active_client.sessions.update_session(_active_session_id, action="stop")
+            log.info(f"[inbox] Session {_active_session_id} stopped (profile saved)")
+        except Exception:
+            try:
+                await _active_client.sessions.delete_session(_active_session_id)
+                log.info(f"[inbox] Session {_active_session_id} deleted (fallback)")
+            except Exception:
+                pass
+        _active_session_id = None
+        _active_client = None
+        return
+
     api_key = os.getenv("BROWSER_USE_API_KEY", "")
+    if not api_key:
+        return
     client = AsyncBrowserUse(api_key=api_key)
     try:
         resp = await client.sessions.list_sessions()
         for s in resp.items:
             if s.status == "active":
                 try:
-                    await client.sessions.stop(s.id)
+                    await client.sessions.update_session(s.id, action="stop")
                     log.info(f"[inbox] Stopped session {s.id}")
                 except Exception:
                     try:

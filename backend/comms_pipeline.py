@@ -4,7 +4,7 @@ import uuid
 
 from utils.pdf_extract import fetch_document_texts
 from agents.comm_voice_analyst import analyze_comm_voice
-from agents.comm_writer import draft_reply, compose_email
+from agents.comm_writer import draft_reply
 from agents.inbox_agent import scan_inbox
 
 
@@ -13,7 +13,7 @@ async def run_comms_pipeline(
     user_id: str,
     send: callable,
 ):
-    """Communication pipeline: voice analysis -> inbox scan -> draft replies."""
+    """Communication pipeline: voice analysis -> progressive inbox scan + draft."""
     try:
         # Phase 1: Analyze communication voice
         await send({"type": "status", "phase": "profiling"})
@@ -34,7 +34,7 @@ async def run_comms_pipeline(
 
         fingerprint = await analyze_comm_voice(doc_texts, send)
 
-        # Phase 2: Scan inbox
+        # Phase 2: Scan inbox (emails arrive progressively via email_read messages)
         await send({"type": "status", "phase": "scanning"})
         await send({
             "type": "agent_log",
@@ -42,80 +42,77 @@ async def run_comms_pipeline(
             "text": "starting inbox scan..."
         })
 
-        emails = await scan_inbox(send)
-
-        if not emails:
-            await send({
-                "type": "agent_log",
-                "agent": "system",
-                "text": "no emails found that need replies"
-            })
-            await send({"type": "status", "phase": "complete"})
-            await send({
-                "type": "complete",
-                "draft_count": 0,
-                "message": "No emails found that need replies."
-            })
-            return
-
-        await send({
-            "type": "scan_progress",
-            "current": len(emails),
-            "total": len(emails),
-        })
-
-        # Phase 3: Draft replies for each email
-        await send({"type": "status", "phase": "drafting"})
-
+        # Collect emails as they come in via a wrapper
+        collected_emails: list[dict] = []
         draft_count = 0
-        for i, email in enumerate(emails):
-            await send({
-                "type": "agent_log",
-                "agent": "system",
-                "text": f"drafting reply {i + 1}/{len(emails)}: {email.get('sender', 'Unknown')}"
-            })
 
-            try:
-                draft_text = await draft_reply(
-                    fingerprint=fingerprint,
-                    email_context={
-                        "sender": email.get("sender", "Unknown"),
-                        "subject": email.get("subject", ""),
-                        "body": email.get("body", ""),
-                        "relationship": "peer",
-                    },
-                    send=send,
-                )
+        original_send = send
 
-                draft_id = str(uuid.uuid4())[:8]
+        async def intercepting_send(msg: dict):
+            """Intercept email_read messages to draft replies on the fly."""
+            nonlocal draft_count
 
-                await send({
-                    "type": "draft_reply",
-                    "id": draft_id,
-                    "sender": email.get("sender", "Unknown"),
-                    "subject": email.get("subject", ""),
-                    "body": email.get("body", ""),
-                    "draft": draft_text,
-                    "index": i,
-                    "total": len(emails),
-                })
+            await original_send(msg)
 
-                draft_count += 1
+            if msg.get("type") == "email_read":
+                collected_emails.append(msg)
 
-            except Exception as e:
-                traceback.print_exc()
-                await send({
+                # Immediately draft a reply for this email
+                await original_send({"type": "status", "phase": "drafting"})
+                await original_send({
                     "type": "agent_log",
-                    "agent": "comm_writer",
-                    "text": f"failed to draft reply for {email.get('sender', '?')}: {str(e)[:100]}"
+                    "agent": "system",
+                    "text": f"drafting reply to {msg.get('sender', 'Unknown')}..."
                 })
 
-        # Phase 4: Complete
+                try:
+                    draft_text = await draft_reply(
+                        fingerprint=fingerprint,
+                        email_context={
+                            "sender": msg.get("sender", "Unknown"),
+                            "subject": msg.get("subject", ""),
+                            "body": msg.get("body", ""),
+                            "relationship": "peer",
+                        },
+                        send=original_send,
+                    )
+
+                    draft_id = str(uuid.uuid4())[:8]
+
+                    await original_send({
+                        "type": "draft_reply",
+                        "id": draft_id,
+                        "sender": msg.get("sender", "Unknown"),
+                        "subject": msg.get("subject", ""),
+                        "body": msg.get("body", ""),
+                        "draft": draft_text,
+                        "index": msg.get("index", 0),
+                        "total": msg.get("total", 1),
+                    })
+
+                    draft_count += 1
+
+                except Exception as e:
+                    traceback.print_exc()
+                    await original_send({
+                        "type": "agent_log",
+                        "agent": "comm_writer",
+                        "text": f"failed to draft reply: {str(e)[:100]}"
+                    })
+
+                # Switch back to scanning phase if more emails to read
+                if msg.get("index", 0) < msg.get("total", 1) - 1:
+                    await original_send({"type": "status", "phase": "scanning"})
+
+        emails = await scan_inbox(intercepting_send)
+
+        # Complete
         await send({"type": "status", "phase": "complete"})
         await send({
             "type": "complete",
             "draft_count": draft_count,
-            "message": f"Drafted {draft_count} replies."
+            "message": f"Drafted {draft_count} replies." if draft_count > 0
+                       else "No emails found that need replies."
         })
 
     except Exception as e:
@@ -126,52 +123,3 @@ async def run_comms_pipeline(
             await send({"type": "error", "message": str(e)})
         except Exception:
             pass
-
-
-async def run_compose(
-    document_ids: list[str],
-    user_id: str,
-    recipient: str,
-    relationship: str,
-    intent: str,
-    send: callable,
-) -> str:
-    """Compose mode: analyze voice + generate one email from intent."""
-    doc_texts = await fetch_document_texts(document_ids, user_id)
-
-    if doc_texts:
-        fingerprint = await analyze_comm_voice(doc_texts, send)
-    else:
-        # Use a minimal default fingerprint if no docs
-        fingerprint = {
-            "email_style": {
-                "avg_length_words": 40,
-                "greeting_peer": f"Hey {recipient},",
-                "greeting_manager": f"Hi {recipient},",
-                "greeting_formal": f"Hi {recipient},",
-                "signoff": "Best",
-                "uses_emoji": False,
-                "formality_peer": 0.3,
-                "formality_manager": 0.5,
-                "formality_formal": 0.7,
-            },
-            "response_patterns": {
-                "acknowledgment_first": True,
-                "asks_followup_questions": True,
-                "says_yes": ["Sounds good"],
-                "says_no": ["I can't make that work"],
-            },
-            "writing_rules": ["Use contractions", "Keep it short"],
-            "avoided_patterns": [],
-            "exemplar_emails": [],
-        }
-
-    draft = await compose_email(
-        fingerprint=fingerprint,
-        recipient=recipient,
-        relationship=relationship,
-        intent=intent,
-        send=send,
-    )
-
-    return draft

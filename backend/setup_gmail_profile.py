@@ -29,17 +29,21 @@ async def main():
     client = AsyncBrowserUse(api_key=api_key)
 
     # Check if profile already exists
-    existing = await client.profiles.list(query="cadence-gmail")
-    if existing.items:
-        profile = existing.items[0]
-        print(f"Found existing profile: {profile.id} ({profile.name})")
-    else:
-        profile = await client.profiles.create(name="cadence-gmail")
+    profile = None
+    resp = await client.profiles.list_profiles()
+    for p in resp.items:
+        if p.name == "cadence-gmail":
+            profile = p
+            print(f"Found existing profile: {profile.id} ({profile.name})")
+            break
+
+    if not profile:
+        profile = await client.profiles.create_profile(name="cadence-gmail")
         print(f"Created new profile: {profile.id}")
 
-    # Create a session with the profile - this opens a browser
+    # Create a session with the profile
     print("\nCreating browser session on Gmail...")
-    session = await client.sessions.create(
+    session = await client.sessions.create_session(
         profile_id=profile.id,
         keep_alive=True,
         start_url="https://mail.google.com",
@@ -58,9 +62,9 @@ async def main():
 
     input("\nPress ENTER after you've logged into Gmail... ")
 
-    # CRITICAL: Use stop() not delete() to persist profile state
+    # Use update_session with action="stop" to persist profile state
     print("\nStopping session and saving profile state...")
-    await client.sessions.stop(session.id)
+    await client.sessions.update_session(session.id, action="stop")
 
     print(f"\nDone! Profile state saved.")
     print(f"\nAdd this to your backend/.env file:")

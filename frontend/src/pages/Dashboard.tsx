@@ -7,10 +7,8 @@ import { PromptBar } from '../components/dashboard/PromptBar'
 import { UploadModal } from '../components/dashboard/UploadModal'
 import { DocumentSelector } from '../components/dashboard/DocumentSelector'
 import { WritingStudioContent } from '../components/dashboard/WritingStudioContent'
-import { CommsStudioContent } from '../components/dashboard/CommsStudioContent'
 import { WritingDashboard } from '../components/dashboard/WritingDashboard'
 import { DetectionDeepDive } from '../components/dashboard/DetectionDeepDive'
-import { CommsComposeView } from '../components/dashboard/CommsComposeView'
 import { CommsReplyQueue } from '../components/dashboard/CommsReplyQueue'
 import '../dashboard.css'
 
@@ -21,8 +19,7 @@ type DashboardView =
   | { kind: 'writing' }
   | { kind: 'writing-pipeline'; prompt: string }
   | { kind: 'deep-dive' }
-  | { kind: 'comms-compose' }
-  | { kind: 'comms-reply-queue' }
+  | { kind: 'comms' }
 
 export function Dashboard() {
   const { documents, grouped, uploadDocument } = useDocuments()
@@ -38,7 +35,7 @@ export function Dashboard() {
 
   const handleSelectStudio = useCallback((s: Studio) => {
     setActiveStudio(s)
-    setView(s === 'writing' ? { kind: 'writing' } : { kind: 'comms-compose' })
+    setView(s === 'writing' ? { kind: 'writing' } : { kind: 'comms' })
   }, [])
 
   const handleSubmit = useCallback((prompt: string) => {
@@ -56,7 +53,7 @@ export function Dashboard() {
     setSelectedDocIds(prev => prev.filter(d => d !== id))
   }, [])
 
-  const isFullscreen = view.kind === 'writing-pipeline' || view.kind === 'deep-dive' || view.kind === 'comms-reply-queue'
+  const isFullscreen = view.kind === 'writing-pipeline' || view.kind === 'deep-dive' || view.kind === 'comms'
 
   const renderContent = () => {
     switch (view.kind) {
@@ -86,17 +83,16 @@ export function Dashboard() {
             onBack={() => setView({ kind: 'writing-pipeline' })}
           />
         )
-      case 'comms-compose':
-        return (
-          <CommsComposeView
-            documentIds={selectedDocIds}
-          />
-        )
-      case 'comms-reply-queue':
+      case 'comms':
         return (
           <CommsReplyQueue
-            onBack={() => setView({ kind: 'comms-compose' })}
+            onBack={() => {
+              setActiveStudio(null)
+              setView({ kind: 'home' })
+            }}
             documentIds={selectedDocIds}
+            selectedDocs={selectedDocs}
+            onOpenSelector={() => setSelectorOpen(true)}
           />
         )
       default:
@@ -122,7 +118,7 @@ export function Dashboard() {
           {renderContent()}
         </div>
 
-        {!isFullscreen && view.kind !== 'comms-compose' && (
+        {!isFullscreen && (
           <PromptBar
             activeStudio={activeStudio}
             selectedDocs={selectedDocs}
@@ -131,37 +127,6 @@ export function Dashboard() {
             onOpenUpload={() => setUploadOpen(true)}
             onOpenSelector={() => setSelectorOpen(true)}
           />
-        )}
-
-        {view.kind === 'comms-compose' && (
-          <div className="db-comms-bar-wrap">
-            <div className="db-comms-bar-left">
-              <button
-                className="db-btn-ghost"
-                onClick={() => setSelectorOpen(true)}
-              >
-                {selectedDocIds.length > 0 ? `${selectedDocIds.length} docs selected` : 'select comm samples'}
-              </button>
-              {selectedDocs.length > 0 && (
-                <div className="db-comms-chips">
-                  {selectedDocs.slice(0, 3).map(d => (
-                    <span key={d.id} className="db-comms-chip">{d.filename}</span>
-                  ))}
-                  {selectedDocs.length > 3 && (
-                    <span className="db-comms-chip">+{selectedDocs.length - 3} more</span>
-                  )}
-                </div>
-              )}
-            </div>
-            <button
-              className="db-btn-ghost"
-              onClick={() => setView({ kind: 'comms-reply-queue' })}
-              disabled={selectedDocIds.length === 0}
-              title={selectedDocIds.length === 0 ? 'Select communication samples first' : ''}
-            >
-              switch to reply queue
-            </button>
-          </div>
         )}
       </main>
 

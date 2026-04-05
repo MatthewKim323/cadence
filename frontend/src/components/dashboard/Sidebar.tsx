@@ -19,11 +19,14 @@ interface Props {
 export function Sidebar({ activeStudio, onSelectStudio, grouped, sessions, onOpenUpload, onSessionClick }: Props) {
   const { user, signOut } = useAuth()
   const [libraryOpen, setLibraryOpen] = useState(true)
+  const [writingOpen, setWritingOpen] = useState(true)
+  const [commsOpen, setCommsOpen] = useState(true)
   const [historyOpen, setHistoryOpen] = useState(true)
 
   const writingCategories = Object.keys(grouped.writing)
   const commCategories = Object.keys(grouped.communication)
-  const totalDocs = Object.values(grouped.writing).flat().length + Object.values(grouped.communication).flat().length
+  const writingDocCount = Object.values(grouped.writing).flat().length
+  const commDocCount = Object.values(grouped.communication).flat().length
   const name = user?.user_metadata?.full_name?.split(' ')[0] || user?.email?.split('@')[0] || 'user'
 
   const formatDate = (dateStr: string) => {
@@ -80,43 +83,56 @@ export function Sidebar({ activeStudio, onSelectStudio, grouped, sessions, onOpe
             <div className="db-sidebar-library">
               {/* Writing Samples */}
               <div className="db-sidebar-lib-group">
-                <div className="db-sidebar-lib-header">
+                <button className="db-sidebar-lib-header db-sidebar-lib-toggle" onClick={() => setWritingOpen(!writingOpen)}>
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                     <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
                   </svg>
-                  <span>writing samples</span>
-                </div>
-                {writingCategories.length === 0 ? (
-                  <span className="db-sidebar-lib-empty">no documents yet</span>
-                ) : (
-                  writingCategories.map(cat => (
-                    <div key={cat} className="db-sidebar-lib-cat">
-                      <span className="db-sidebar-lib-cat-name">{cat.toLowerCase()} ({grouped.writing[cat].length})</span>
-                      {grouped.writing[cat].map(doc => (
-                        <span key={doc.id} className="db-sidebar-lib-file">{doc.filename}</span>
-                      ))}
-                    </div>
-                  ))
+                  <span>writing samples ({Object.values(grouped.writing).flat().length})</span>
+                  <svg className="db-sidebar-lib-chevron" width="10" height="10" viewBox="0 0 16 16" fill="none" style={{ transform: writingOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }}>
+                    <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
+                {writingOpen && (
+                  writingCategories.length === 0 ? (
+                    <span className="db-sidebar-lib-empty">no documents yet</span>
+                  ) : (
+                    writingCategories.map(cat => (
+                      <div key={cat} className="db-sidebar-lib-cat">
+                        <span className="db-sidebar-lib-cat-name">{cat.toLowerCase()} ({grouped.writing[cat].length})</span>
+                        {grouped.writing[cat].map(doc => (
+                          <span key={doc.id} className="db-sidebar-lib-file">{doc.filename}</span>
+                        ))}
+                      </div>
+                    ))
+                  )
                 )}
               </div>
 
               {/* Communications */}
               <div className="db-sidebar-lib-group">
-                <div className="db-sidebar-lib-header">
+                <button className="db-sidebar-lib-header db-sidebar-lib-toggle" onClick={() => setCommsOpen(!commsOpen)}>
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                     <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
                     <polyline points="22,6 12,13 2,6"/>
                   </svg>
-                  <span>communications</span>
-                </div>
-                {commCategories.length === 0 ? (
-                  <span className="db-sidebar-lib-empty">no emails yet</span>
-                ) : (
-                  commCategories.map(cat => (
-                    <div key={cat} className="db-sidebar-lib-cat">
-                      <span className="db-sidebar-lib-cat-name">{cat.toLowerCase()} ({grouped.communication[cat].length})</span>
-                    </div>
-                  ))
+                  <span>communications ({Object.values(grouped.communication).flat().length})</span>
+                  <svg className="db-sidebar-lib-chevron" width="10" height="10" viewBox="0 0 16 16" fill="none" style={{ transform: commsOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }}>
+                    <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
+                {commsOpen && (
+                  commCategories.length === 0 ? (
+                    <span className="db-sidebar-lib-empty">no emails yet</span>
+                  ) : (
+                    commCategories.map(cat => (
+                      <div key={cat} className="db-sidebar-lib-cat">
+                        <span className="db-sidebar-lib-cat-name">{cat.toLowerCase()} ({grouped.communication[cat].length})</span>
+                        {grouped.communication[cat].map(doc => (
+                          <span key={doc.id} className="db-sidebar-lib-file">{doc.filename}</span>
+                        ))}
+                      </div>
+                    ))
+                  )
                 )}
               </div>
 
@@ -137,7 +153,7 @@ export function Sidebar({ activeStudio, onSelectStudio, grouped, sessions, onOpe
 
         {/* Voice Profile */}
         <div className="db-sidebar-section">
-          <VoiceProfile docCount={totalDocs} categories={writingCategories} />
+          <VoiceProfile writingDocCount={writingDocCount} commDocCount={commDocCount} categories={writingCategories} />
         </div>
 
         {/* Session History */}
