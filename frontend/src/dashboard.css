@@ -331,26 +331,39 @@
 .db-sidebar-bottom {
   padding: 0.75rem 1rem;
   border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
 }
 
-.db-sidebar-signout {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: 0.6rem;
-  cursor: pointer;
-  padding: 0;
+.db-sidebar-bottom .profile-wrapper {
+  width: 100%;
 }
 
-.db-sidebar-signout:hover {
-  color: var(--text-secondary);
+.db-sidebar-bottom .profile-btn {
+  width: 28px;
+  height: 28px;
+  font-size: 0.65rem;
+}
+
+.db-sidebar-bottom .profile-dropdown {
+  bottom: calc(100% + 8px);
+  top: auto;
+  left: 0;
+  right: auto;
+}
+
+.db-floating-profile {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  z-index: 50;
 }
 
 /* ============================================
    Main Content Area
    ============================================ */
 .db-main {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100vh;

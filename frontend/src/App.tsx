@@ -6,6 +6,7 @@ import { Loader } from './components/Loader'
 import { AuthModal } from './components/AuthModal'
 import { Onboarding } from './components/Onboarding'
 import { Dashboard } from './pages/Dashboard'
+import { ProfilePage } from './pages/ProfilePage'
 import { EclipticaBackground } from './components/EclipticaBackground'
 import { Navbar } from './components/Navbar'
 import { Hero } from './components/Hero'
@@ -69,6 +70,15 @@ function DashboardRoute() {
   )
 }
 
+function ProfileRoute() {
+  const { user, loading } = useAuth()
+
+  if (loading) return null
+  if (!user) return <Navigate to="/" replace />
+
+  return <ProfilePage />
+}
+
 export default function App() {
   const [loaded, setLoaded] = useState(false)
   const handleLoaded = useCallback(() => setLoaded(true), [])
@@ -83,6 +93,7 @@ export default function App() {
           <Routes location={location} key={location.pathname}>
             <Route path="/" element={<LandingPage />} />
             <Route path="/dashboard" element={<DashboardRoute />} />
+            <Route path="/profile" element={<ProfileRoute />} />
           </Routes>
         </AnimatePresence>
       </div>

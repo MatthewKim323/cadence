@@ -7,8 +7,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import httpx
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from supabase import create_client
 
 from pipeline import run_writing_pipeline
@@ -36,6 +38,8 @@ app.add_middleware(
 
 _supabase_url = os.getenv("SUPABASE_URL", "")
 _supabase_service_key = os.getenv("SUPABASE_SERVICE_KEY", "")
+_elevenlabs_api_key = os.getenv("ELEVENLABS_API_KEY", "")
+_elevenlabs_agent_id = os.getenv("ELEVENLABS_AGENT_ID", "")
 
 
 def _verify_token(token: str) -> str | None:
@@ -239,6 +243,73 @@ async def comms_ws(ws: WebSocket):
             await ws.close()
         except Exception:
             pass
+
+
+def _extract_bearer(request: Request) -> str | None:
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        return auth[7:]
+    return None
+
+
+@app.get("/api/voice-interview/signed-url")
+async def voice_interview_signed_url(request: Request):
+    token = _extract_bearer(request)
+    if not token:
+        return JSONResponse({"error": "Missing auth token"}, status_code=401)
+
+    user_id = _verify_token(token)
+    if not user_id:
+        return JSONResponse({"error": "Invalid auth token"}, status_code=401)
+
+    if not _elevenlabs_api_key or not _elevenlabs_agent_id:
+        return JSONResponse({"error": "ElevenLabs not configured"}, status_code=500)
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"https://api.elevenlabs.io/v1/convai/conversation/get-signed-url?agent_id={_elevenlabs_agent_id}",
+            headers={"xi-api-key": _elevenlabs_api_key},
+        )
+
+    if resp.status_code != 200:
+        log.error(f"ElevenLabs signed URL failed: {resp.status_code} {resp.text}")
+        return JSONResponse({"error": "Failed to get signed URL from ElevenLabs"}, status_code=502)
+
+    data = resp.json()
+    return {"signed_url": data.get("signed_url", "")}
+
+
+@app.post("/api/voice-session")
+async def save_voice_session(request: Request):
+    token = _extract_bearer(request)
+    if not token:
+        return JSONResponse({"error": "Missing auth token"}, status_code=401)
+
+    user_id = _verify_token(token)
+    if not user_id:
+        return JSONResponse({"error": "Invalid auth token"}, status_code=401)
+
+    body = await request.json()
+    transcript = body.get("transcript", "")
+    duration = body.get("duration_seconds", 0)
+    conversation_id = body.get("conversation_id", "")
+
+    if not transcript:
+        return JSONResponse({"error": "No transcript provided"}, status_code=400)
+
+    try:
+        sb = create_client(_supabase_url, _supabase_service_key)
+        sb.table("voice_sessions").insert({
+            "user_id": user_id,
+            "conversation_id": conversation_id,
+            "transcript": transcript,
+            "duration_seconds": duration,
+        }).execute()
+        log.info(f"Saved voice session for user {user_id} ({duration}s)")
+        return {"status": "ok"}
+    except Exception as e:
+        log.error(f"Failed to save voice session: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 @app.get("/health")

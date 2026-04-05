@@ -2,6 +2,7 @@ import { useState, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { VoiceInterviewModal } from './VoiceInterviewModal'
 
 type Step = 'welcome' | 'upload' | 'voice' | 'uploading'
 
@@ -223,7 +224,7 @@ function UploadStep({ onBack, onDone }: { onBack: () => void; onDone: () => void
 
 function VoiceStep({ onBack, onDone }: { onBack: () => void; onDone: () => void }) {
   return (
-    <motion.div className="ob-card" {...fadeSlide}>
+    <motion.div className="ob-card ob-card--voice" {...fadeSlide}>
       <button className="ob-back" onClick={onBack}>
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <path d="M10 12l-4-4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
@@ -237,30 +238,18 @@ function VoiceStep({ onBack, onDone }: { onBack: () => void; onDone: () => void 
         think, explain, and express yourself — then build your voice profile from the transcript.
       </p>
 
-      <div className="ob-voice-placeholder">
-        <div className="ob-voice-mic">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/>
-            <path d="M19 10v2a7 7 0 01-14 0v-2"/>
-            <line x1="12" y1="19" x2="12" y2="23"/>
-            <line x1="8" y1="23" x2="16" y2="23"/>
-          </svg>
-          <div className="ob-voice-ring" />
-          <div className="ob-voice-ring ob-voice-ring--2" />
-        </div>
-        <p className="ob-voice-status">coming soon — elevenlabs integration</p>
-        <p className="ob-voice-hint">
-          for now, upload your writing samples instead. voice interviews
-          will be available in the next update.
-        </p>
+      <div className="ob-voice-embed">
+        <VoiceInterviewModal
+          open={true}
+          onClose={onDone}
+          onComplete={onDone}
+          inline
+        />
       </div>
 
       <div className="ob-voice-actions">
-        <button className="ob-continue ob-continue--secondary" onClick={onBack}>
+        <button className="ob-continue ob-continue--ghost" onClick={onBack}>
           upload writing instead
-        </button>
-        <button className="ob-continue ob-continue--ghost" onClick={onDone}>
-          skip for now
         </button>
       </div>
     </motion.div>

@@ -10,6 +10,8 @@ import { WritingStudioContent } from '../components/dashboard/WritingStudioConte
 import { WritingDashboard } from '../components/dashboard/WritingDashboard'
 import { DetectionDeepDive } from '../components/dashboard/DetectionDeepDive'
 import { CommsReplyQueue } from '../components/dashboard/CommsReplyQueue'
+import { ProfileDropdown } from '../components/ProfileDropdown'
+import { VoiceInterviewModal } from '../components/VoiceInterviewModal'
 import '../dashboard.css'
 
 type Studio = 'writing' | 'comms'
@@ -30,6 +32,7 @@ export function Dashboard() {
   const [selectedDocIds, setSelectedDocIds] = useState<string[]>([])
   const [uploadOpen, setUploadOpen] = useState(false)
   const [selectorOpen, setSelectorOpen] = useState(false)
+  const [interviewOpen, setInterviewOpen] = useState(false)
 
   const selectedDocs = documents.filter(d => selectedDocIds.includes(d.id))
 
@@ -110,10 +113,15 @@ export function Dashboard() {
           sessions={sessions}
           onOpenUpload={() => setUploadOpen(true)}
           onSessionClick={() => {}}
+          onVoiceInterview={() => setInterviewOpen(true)}
         />
       )}
 
       <main className="db-main">
+        <div className="db-floating-profile">
+          <ProfileDropdown onVoiceInterview={() => setInterviewOpen(true)} />
+        </div>
+
         <div className="db-content">
           {renderContent()}
         </div>
@@ -137,6 +145,10 @@ export function Dashboard() {
         selected={selectedDocIds}
         onConfirm={handleConfirmDocs}
         onClose={() => setSelectorOpen(false)}
+      />
+      <VoiceInterviewModal
+        open={interviewOpen}
+        onClose={() => setInterviewOpen(false)}
       />
     </div>
   )
