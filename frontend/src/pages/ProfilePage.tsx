@@ -181,7 +181,7 @@ function WritingCard({ docCount, expanded, onToggle, onExport }: {
           <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/>
         </svg>
       }
-      title="writing.cadence"
+      title="writing.cadence.json"
       headerRight={
         <button className="pp-export-sm" onClick={onExport}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -273,7 +273,7 @@ function CommsCard({ emailCount, expanded, onToggle, onExport }: {
           <polyline points="22,6 12,13 2,6"/>
         </svg>
       }
-      title="comms.cadence"
+      title="comms.cadence.json"
       headerRight={
         <button className="pp-export-sm" onClick={onExport}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -377,7 +377,7 @@ function InterviewCard({
           <line x1="8" y1="23" x2="16" y2="23"/>
         </svg>
       }
-      title="interview.cadence"
+      title="interview.cadence.json"
       headerRight={
         sessions.length > 0 ? (
           <button className="pp-interview-btn" onClick={onStartInterview}>
@@ -560,38 +560,61 @@ export function ProfilePage() {
     setSessions(data ?? [])
   }
 
+  const downloadJSON = (data: object, filename: string) => {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   const exportProfile = (type: 'writing' | 'communication') => {
     const profile = type === 'writing'
       ? { cadence_version: '1.0', fingerprint_type: 'writing', exported_at: new Date().toISOString(), user_display_name: name, profile: MOCK_WRITING_PROFILE }
       : { cadence_version: '1.0', fingerprint_type: 'communication', exported_at: new Date().toISOString(), user_display_name: name, profile: MOCK_COMMS_PROFILE }
-
-    const blob = new Blob([JSON.stringify(profile, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = type === 'writing' ? 'writing.cadence' : 'comms.cadence'
-    a.click()
-    URL.revokeObjectURL(url)
+    downloadJSON(profile, type === 'writing' ? 'writing.cadence.json' : 'comms.cadence.json')
   }
 
   const exportInterview = () => {
     const session = sessions[0]
     if (!session) return
+    const fp = (session.fingerprint_json ?? {}) as Record<string, unknown>
+    const speech = (fp.speech_patterns ?? {}) as Record<string, unknown>
+    const vocab = (fp.vocabulary ?? {}) as Record<string, unknown>
+    const personality = (fp.personality ?? {}) as Record<string, unknown>
+
     const profile = {
       cadence_version: '1.0',
       fingerprint_type: 'interview',
       exported_at: new Date().toISOString(),
       user_display_name: name,
-      profile: session.fingerprint_json ?? {},
+      source: 'voice_interview',
+      profile: {
+        metrics: {
+          formality: personality.formality ?? 0.5,
+          confidence: personality.confidence_level ?? 0.5,
+          energy: personality.energy ?? 'moderate',
+          humor_frequency: personality.humor_frequency ?? 'occasional',
+          avg_response_length: speech.avg_response_length ?? 'medium',
+          contraction_rate: speech.contraction_rate ?? 'always',
+        },
+        writing_rules: (fp.voice_rules ?? []) as string[],
+        signature_phrases: [
+          ...((speech.sentence_starters ?? []) as string[]),
+          ...((speech.emphasis_words ?? []) as string[]),
+        ],
+        avoided_patterns: (vocab.avoided_words ?? []) as string[],
+        exemplar_passages: (fp.exemplar_quotes ?? []) as string[],
+        speech_patterns: fp.speech_patterns ?? {},
+        reasoning_style: fp.reasoning_style ?? {},
+        personality: fp.personality ?? {},
+        vocabulary: fp.vocabulary ?? {},
+      },
       transcript: session.transcript,
     }
-    const blob = new Blob([JSON.stringify(profile, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'interview.cadence'
-    a.click()
-    URL.revokeObjectURL(url)
+    downloadJSON(profile, 'interview.cadence.json')
   }
 
   const formatDate = (d: string) =>
@@ -657,7 +680,7 @@ export function ProfilePage() {
               <polyline points="7 10 12 15 17 10"/>
               <line x1="12" y1="15" x2="12" y2="3"/>
             </svg>
-            export interview.cadence
+            export interview.cadence.json
           </button>
         </div>
       )}

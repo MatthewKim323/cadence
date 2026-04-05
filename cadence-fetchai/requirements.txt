@@ -1,0 +1,6 @@
+uagents>=0.15.0
+uagents-core>=0.4.0
+anthropic>=0.49.0
+browser-use-sdk>=0.2.0
+python-dotenv>=1.0.0
+pydantic>=2.7.0

@@ -88,7 +88,7 @@ export function VoiceProfile({ writingDocCount, commDocCount, categories }: Prop
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = type === 'writing' ? 'writing.cadence' : 'comms.cadence'
+    a.download = type === 'writing' ? 'writing.cadence.json' : 'comms.cadence.json'
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -110,7 +110,7 @@ export function VoiceProfile({ writingDocCount, commDocCount, categories }: Prop
           <span>directness: 0.82</span>
         </div>
         <button className="db-vp-export" onClick={() => exportProfile('writing')}>
-          export writing.cadence
+          export writing.cadence.json
         </button>
       </div>
 
@@ -127,7 +127,7 @@ export function VoiceProfile({ writingDocCount, commDocCount, categories }: Prop
           <span>peer: 0.3</span>
         </div>
         <button className="db-vp-export" onClick={() => exportProfile('communication')}>
-          export comms.cadence
+          export comms.cadence.json
         </button>
       </div>
     </div>
