@@ -123,8 +123,86 @@ def _inject_noise(text: str, intensity: int = 1) -> str:
 
 # ── Helpers ──
 
+_PDF_PROFILE_MARKERS = [
+    "writing rules", "voice rules", "signature phrases", "avoided patterns",
+    "exemplar passages", "exemplar quotes", "speech patterns", "metrics",
+    "personality", "reasoning style", "vocabulary", "communication rules",
+    "cadence", "voice profile",
+]
+
+
+def _extract_pdf_profile(text: str) -> str | None:
+    """Detect and extract text-based voice profile data from PDF content sent by ASI:One."""
+    lower = text.lower()
+    hits = sum(1 for marker in _PDF_PROFILE_MARKERS if marker in lower)
+    if hits < 3:
+        return None
+
+    rules, phrases, avoided, exemplars, metrics = [], [], [], [], {}
+
+    current_section = None
+    for line in text.split("\n"):
+        stripped = line.strip()
+        low = stripped.lower()
+
+        if any(s in low for s in ["writing rules", "voice rules", "communication rules"]):
+            current_section = "rules"
+            continue
+        elif "signature phrase" in low:
+            current_section = "phrases"
+            continue
+        elif "avoided pattern" in low or "avoided words" in low:
+            current_section = "avoided"
+            continue
+        elif "exemplar" in low:
+            current_section = "exemplars"
+            continue
+        elif "metric" in low:
+            current_section = "metrics"
+            continue
+        elif any(s in low for s in ["personality", "speech patterns", "reasoning", "vocabulary", "transcript"]):
+            current_section = "other"
+            continue
+
+        if not stripped or stripped == "•":
+            continue
+
+        item = re.sub(r"^[•\-\*]\s*", "", stripped).strip().strip('"\'')
+        if not item:
+            continue
+
+        if current_section == "rules":
+            rules.append(item)
+        elif current_section == "phrases":
+            phrases.append(item)
+        elif current_section == "avoided":
+            avoided.append(item)
+        elif current_section == "exemplars":
+            exemplars.append(item)
+        elif current_section == "metrics":
+            kv = re.match(r"^(.+?)\s*[:\-]\s*(.+)$", item)
+            if kv:
+                metrics[kv.group(1).strip()] = kv.group(2).strip()
+
+    if not rules and not phrases and not exemplars:
+        return None
+
+    profile = {
+        "cadence_version": "1.0",
+        "fingerprint_type": "pdf_import",
+        "profile": {
+            "writing_rules": rules,
+            "metrics": metrics,
+            "signature_phrases": phrases,
+            "avoided_patterns": avoided,
+            "exemplar_passages": exemplars,
+        },
+    }
+    return json.dumps(profile)
+
+
 def _parse_user_input(text: str) -> tuple[str | None, str]:
-    """Extract .cadence JSON block and remaining writing prompt from user text."""
+    """Extract voice profile (JSON or PDF text) and writing prompt from user text."""
     json_match = re.search(r"\{[\s\S]*?\"cadence_version\"[\s\S]*?\}", text)
     if json_match:
         raw = json_match.group(0)
@@ -142,6 +220,27 @@ def _parse_user_input(text: str) -> tuple[str | None, str]:
         prompt = re.sub(r"---+", "", prompt).strip()
         prompt = re.sub(r"\n{3,}", "\n\n", prompt).strip()
         return json_str, prompt
+
+    pdf_profile = _extract_pdf_profile(text)
+    if pdf_profile:
+        prompt_lines = []
+        in_profile_section = False
+        for line in text.split("\n"):
+            low = line.strip().lower()
+            if any(m in low for m in _PDF_PROFILE_MARKERS):
+                in_profile_section = True
+                continue
+            if in_profile_section and (line.strip().startswith("•") or line.strip().startswith("-") or not line.strip()):
+                continue
+            if line.strip() and not any(m in low for m in _PDF_PROFILE_MARKERS):
+                in_profile_section = False
+                prompt_lines.append(line)
+        prompt = "\n".join(prompt_lines).strip()
+        prompt = re.sub(r"\n{3,}", "\n\n", prompt).strip()
+        if not prompt:
+            prompt = "Write based on the provided voice profile."
+        return pdf_profile, prompt
+
     return None, text.strip()
 
 

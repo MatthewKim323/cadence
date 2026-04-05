@@ -1,4 +1,5 @@
 import { useAuth } from '../../context/AuthContext'
+import { exportWritingPdf, exportCommsPdf } from '../../utils/exportPdf'
 
 const MOCK_WRITING_PROFILE = {
   cadence_version: '1.0',
@@ -73,24 +74,21 @@ interface Props {
 export function VoiceProfile({ writingDocCount, commDocCount, categories }: Props) {
   const { user } = useAuth()
 
-  const exportProfile = (type: 'writing' | 'communication') => {
-    const profile = type === 'writing' ? { ...MOCK_WRITING_PROFILE } : { ...MOCK_COMMS_PROFILE }
-    profile.user_display_name = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User'
-    profile.exported_at = new Date().toISOString()
-    if (type === 'writing') {
-      (profile as typeof MOCK_WRITING_PROFILE).profile.source_document_count = writingDocCount
-      ;(profile as typeof MOCK_WRITING_PROFILE).profile.source_categories = categories
-    } else {
-      (profile as typeof MOCK_COMMS_PROFILE).profile.source_email_count = commDocCount
-    }
+  const userName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User'
 
-    const blob = new Blob([JSON.stringify(profile, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = type === 'writing' ? 'writing.cadence.json' : 'comms.cadence.json'
-    a.click()
-    URL.revokeObjectURL(url)
+  const exportProfile = (type: 'writing' | 'communication') => {
+    if (type === 'writing') {
+      const profile = { ...MOCK_WRITING_PROFILE }
+      profile.user_display_name = userName
+      profile.profile.source_document_count = writingDocCount
+      profile.profile.source_categories = categories
+      exportWritingPdf(profile as unknown as Record<string, unknown>, userName)
+    } else {
+      const profile = { ...MOCK_COMMS_PROFILE }
+      profile.user_display_name = userName
+      profile.profile.source_email_count = commDocCount
+      exportCommsPdf(profile as unknown as Record<string, unknown>, userName)
+    }
   }
 
   return (
@@ -110,7 +108,7 @@ export function VoiceProfile({ writingDocCount, commDocCount, categories }: Prop
           <span>directness: 0.82</span>
         </div>
         <button className="db-vp-export" onClick={() => exportProfile('writing')}>
-          export writing.cadence.json
+          export writing.cadence.pdf
         </button>
       </div>
 
@@ -127,7 +125,7 @@ export function VoiceProfile({ writingDocCount, commDocCount, categories }: Prop
           <span>peer: 0.3</span>
         </div>
         <button className="db-vp-export" onClick={() => exportProfile('communication')}>
-          export comms.cadence.json
+          export comms.cadence.pdf
         </button>
       </div>
     </div>

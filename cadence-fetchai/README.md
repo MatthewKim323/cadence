@@ -4,7 +4,7 @@ An AI writing assistant that produces human-like long-form content by matching y
 
 ## What this agent does
 
-- Accepts a writing prompt and optional `.cadence.json` voice profile
+- Accepts a writing prompt and optional voice profile (PDF or JSON)
 - Generates a first draft that mimics your personal writing style
 - Runs the draft through AI detection (ZeroGPT + Originality.ai)
 - Automatically revises flagged sentences until AI detection score drops below 10%
@@ -12,20 +12,25 @@ An AI writing assistant that produces human-like long-form content by matching y
 
 ## How to use
 
-Send a message with your writing prompt. Optionally include a `.cadence.json` voice profile (paste the JSON directly) to match your writing style.
+Send a message with your writing prompt. Optionally attach a `.cadence.pdf` voice profile to match your writing style.
 
 ### Example prompts
 
 - "Write a 500-word college essay about the impact of social media on mental health"
 - "Write a personal statement for graduate school about my passion for marine biology"
 
-### With voice profile
+### With voice profile (PDF)
 
-Paste your `.cadence.json` content followed by your prompt. The agent will analyze your writing patterns and match them.
+Upload your `.cadence.pdf` file exported from the Cadence web app and include your writing prompt. The agent will parse your writing rules, metrics, signature phrases, and exemplar passages from the PDF and match your voice exactly.
+
+### With voice profile (JSON)
+
+You can also paste raw `.cadence.json` content followed by your prompt. The agent will analyze your writing patterns and match them.
 
 ## Capabilities
 
 - Claude-powered writing with human-like post-processing
 - Dual AI detection (ZeroGPT + Originality.ai)
 - Up to 5 revision rounds with progressive noise injection
-- Voice fingerprint matching for personalized output
+- Voice fingerprint matching from PDF or JSON profiles
+- Supports writing, communication, and interview voice profiles
