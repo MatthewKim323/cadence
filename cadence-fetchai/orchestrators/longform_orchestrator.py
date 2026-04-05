@@ -123,86 +123,24 @@ def _inject_noise(text: str, intensity: int = 1) -> str:
 
 # ── Helpers ──
 
-_PDF_PROFILE_MARKERS = [
-    "writing rules", "voice rules", "signature phrases", "avoided patterns",
-    "exemplar passages", "exemplar quotes", "speech patterns", "metrics",
-    "personality", "reasoning style", "vocabulary", "communication rules",
-    "cadence", "voice profile",
+_PROFILE_KEYWORDS = [
+    "writing rule", "voice rule", "signature phrase", "avoided pattern",
+    "exemplar", "speech pattern", "formality", "directness",
+    "cadence", "voice profile", "writing style", "sentence length",
+    "contraction", "semicolon", "em-dash", "writing profile",
+    "communication rule", "personality", "reasoning style",
+    "avg_sentence", "average sentence",
 ]
 
 
-def _extract_pdf_profile(text: str) -> str | None:
-    """Detect and extract text-based voice profile data from PDF content sent by ASI:One."""
+def _has_profile_content(text: str) -> bool:
     lower = text.lower()
-    hits = sum(1 for marker in _PDF_PROFILE_MARKERS if marker in lower)
-    if hits < 3:
-        return None
-
-    rules, phrases, avoided, exemplars, metrics = [], [], [], [], {}
-
-    current_section = None
-    for line in text.split("\n"):
-        stripped = line.strip()
-        low = stripped.lower()
-
-        if any(s in low for s in ["writing rules", "voice rules", "communication rules"]):
-            current_section = "rules"
-            continue
-        elif "signature phrase" in low:
-            current_section = "phrases"
-            continue
-        elif "avoided pattern" in low or "avoided words" in low:
-            current_section = "avoided"
-            continue
-        elif "exemplar" in low:
-            current_section = "exemplars"
-            continue
-        elif "metric" in low:
-            current_section = "metrics"
-            continue
-        elif any(s in low for s in ["personality", "speech patterns", "reasoning", "vocabulary", "transcript"]):
-            current_section = "other"
-            continue
-
-        if not stripped or stripped == "•":
-            continue
-
-        item = re.sub(r"^[•\-\*]\s*", "", stripped).strip().strip('"\'')
-        if not item:
-            continue
-
-        if current_section == "rules":
-            rules.append(item)
-        elif current_section == "phrases":
-            phrases.append(item)
-        elif current_section == "avoided":
-            avoided.append(item)
-        elif current_section == "exemplars":
-            exemplars.append(item)
-        elif current_section == "metrics":
-            kv = re.match(r"^(.+?)\s*[:\-]\s*(.+)$", item)
-            if kv:
-                metrics[kv.group(1).strip()] = kv.group(2).strip()
-
-    if not rules and not phrases and not exemplars:
-        return None
-
-    profile = {
-        "cadence_version": "1.0",
-        "fingerprint_type": "pdf_import",
-        "profile": {
-            "writing_rules": rules,
-            "metrics": metrics,
-            "signature_phrases": phrases,
-            "avoided_patterns": avoided,
-            "exemplar_passages": exemplars,
-        },
-    }
-    return json.dumps(profile)
+    hits = sum(1 for kw in _PROFILE_KEYWORDS if kw in lower)
+    return hits >= 2
 
 
 def _parse_user_input(text: str) -> tuple[str | None, str]:
-    """Extract voice profile (JSON or PDF text) and writing prompt from user text."""
+    """Extract voice profile (JSON or raw text from PDF) and writing prompt."""
     json_match = re.search(r"\{[\s\S]*?\"cadence_version\"[\s\S]*?\}", text)
     if json_match:
         raw = json_match.group(0)
@@ -221,25 +159,33 @@ def _parse_user_input(text: str) -> tuple[str | None, str]:
         prompt = re.sub(r"\n{3,}", "\n\n", prompt).strip()
         return json_str, prompt
 
-    pdf_profile = _extract_pdf_profile(text)
-    if pdf_profile:
-        prompt_lines = []
-        in_profile_section = False
-        for line in text.split("\n"):
-            low = line.strip().lower()
-            if any(m in low for m in _PDF_PROFILE_MARKERS):
-                in_profile_section = True
-                continue
-            if in_profile_section and (line.strip().startswith("•") or line.strip().startswith("-") or not line.strip()):
-                continue
-            if line.strip() and not any(m in low for m in _PDF_PROFILE_MARKERS):
-                in_profile_section = False
-                prompt_lines.append(line)
-        prompt = "\n".join(prompt_lines).strip()
-        prompt = re.sub(r"\n{3,}", "\n\n", prompt).strip()
-        if not prompt:
+    if _has_profile_content(text):
+        prompt_match = re.search(
+            r"(?:write|essay|draft|compose|create|generate|produce)\s+.{10,}",
+            text, re.IGNORECASE,
+        )
+        if prompt_match:
+            prompt = prompt_match.group(0).strip()
+            profile_text = text[:prompt_match.start()].strip()
+            if not profile_text:
+                profile_text = text
+        else:
             prompt = "Write based on the provided voice profile."
-        return pdf_profile, prompt
+            profile_text = text
+
+        profile_json = json.dumps({
+            "cadence_version": "1.0",
+            "fingerprint_type": "raw_text",
+            "profile": {
+                "raw_profile_text": profile_text,
+                "writing_rules": [],
+                "metrics": {},
+                "signature_phrases": [],
+                "avoided_patterns": [],
+                "exemplar_passages": [],
+            },
+        })
+        return profile_json, prompt
 
     return None, text.strip()
 
@@ -249,6 +195,7 @@ _status_logs: dict[str, list[str]] = {}
 
 async def _status(ctx: Context, user_addr: str, text: str):
     _status_logs.setdefault(user_addr, []).append(text)
+    ctx.logger.info(f"[pipeline] {text}")
     full_log = "\n".join(f"→ {line}" for line in _status_logs[user_addr])
     await ctx.send(
         user_addr,
@@ -307,28 +254,33 @@ _EMPTY_FP = json.dumps({
 
 @chat_proto.on_message(ChatMessage)
 async def handle_chat(ctx: Context, sender: str, msg: ChatMessage):
-    ctx.logger.info(f"Received ChatMessage from {sender[:20]}...")
-    await ctx.send(
-        sender,
-        ChatAcknowledgement(timestamp=datetime.now(), acknowledged_msg_id=msg.msg_id),
-    )
+    if sender in sessions:
+        return
 
     text = ""
     for item in msg.content:
         if isinstance(item, TextContent):
             text += item.text
 
-    ctx.logger.info(f"User text: {text[:100]}...")
-
-    if not text.strip():
-        await _status(ctx, sender, "Please provide a writing prompt (and optionally a .cadence profile).")
+    if not text.strip() or len(text) < 10:
         return
 
     cadence_json, prompt = _parse_user_input(text)
-
-    if not prompt:
-        await _status(ctx, sender, "Couldn't find a writing prompt. Please include what you'd like me to write.")
+    if not prompt or len(prompt) < 10:
         return
+
+    if cadence_json:
+        parsed = json.loads(cadence_json)
+        fp_type = parsed.get("fingerprint_type", "json")
+        has_raw = bool(parsed.get("profile", {}).get("raw_profile_text"))
+        ctx.logger.info(f"Profile detected: type={fp_type}, raw_text={has_raw}")
+    ctx.logger.info(f"Accepted message from {sender[:20]}... ({len(text)} chars)")
+    ctx.logger.info(f"Prompt: {prompt[:80]}... | Has cadence: {cadence_json is not None}")
+
+    await ctx.send(
+        sender,
+        ChatAcknowledgement(timestamp=datetime.now(), acknowledged_msg_id=msg.msg_id),
+    )
 
     ctx.logger.info(f"Prompt: {prompt[:80]}... | Has cadence: {cadence_json is not None}")
 

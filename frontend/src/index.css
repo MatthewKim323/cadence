@@ -83,6 +83,8 @@ img {
   height: 100vh;
   z-index: 0;
   pointer-events: none;
+  transform: scale(1.12) translateX(-4%);
+  transform-origin: center center;
 }
 
 .ecliptica-bg canvas {
@@ -209,7 +211,7 @@ img {
   font-weight: 400;
   letter-spacing: 0.2em;
   text-transform: lowercase;
-  color: var(--text-secondary);
+  color: #c0c0c0;
   margin-bottom: 2rem;
   opacity: 0;
   animation: fadeUp 0.8s ease forwards;
@@ -230,13 +232,13 @@ img {
 
 .hero-headline .accent {
   color: var(--text);
-  opacity: 0.4;
+  opacity: 0.7;
 }
 
 .hero-sub {
   font-size: clamp(0.85rem, 1.2vw, 0.95rem);
   font-weight: 300;
-  color: var(--text-secondary);
+  color: #b8b8b8;
   max-width: 480px;
   line-height: 1.65;
   margin-bottom: 3rem;
@@ -283,7 +285,7 @@ img {
   padding: 0.85rem 2rem;
   border-radius: 100px;
   border: 1px solid var(--border-light);
-  color: var(--text-secondary);
+  color: #b8b8b8;
   transition: color 0.3s ease, border-color 0.3s ease;
 }
 

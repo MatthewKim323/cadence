@@ -82,6 +82,15 @@ def _humanize_text(text: str) -> str:
 
 
 def _build_fingerprint_section(fingerprint: dict) -> str:
+    raw = fingerprint.get("raw_profile_text", "")
+    if raw:
+        return (
+            f"## HOW THIS PERSON WRITES\n\n"
+            f"Below is a voice profile describing this person's writing style. "
+            f"Match it exactly — tone, sentence structure, word choice, everything.\n\n"
+            f"{raw}"
+        )
+
     rules = "\n".join(f"- {r}" for r in fingerprint.get("writing_rules", []))
     exemplars = "\n\n---\n\n".join(fingerprint.get("exemplar_passages", []))
     avoided = ", ".join(fingerprint.get("avoided_patterns", []))
