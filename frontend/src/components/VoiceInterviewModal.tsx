@@ -72,6 +72,56 @@ function InterviewUI({ onClose, onComplete, inline }: { onClose: () => void; onC
   const transcriptEndRef = useRef<HTMLDivElement>(null)
   const conversationIdRef = useRef<string>('')
 
+  const transcriptRef = useRef<TranscriptEntry[]>([])
+  const savingRef = useRef(false)
+
+  useEffect(() => { transcriptRef.current = transcript }, [transcript])
+  useEffect(() => { savingRef.current = saving }, [saving])
+
+  const doSave = useCallback(async () => {
+    const currentTranscript = transcriptRef.current
+    if (savingRef.current || currentTranscript.length === 0) return
+    setSaving(true)
+    savingRef.current = true
+
+    const duration = Math.round((Date.now() - startTimeRef.current) / 1000)
+    const fullTranscript = currentTranscript
+      .map(t => `${t.role === 'agent' ? 'Cadence' : 'You'}: ${t.text}`)
+      .join('\n\n')
+
+    try {
+      if (session?.access_token) {
+        const res = await fetch(`${BACKEND_URL}/api/voice-session`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            transcript: fullTranscript,
+            duration_seconds: duration,
+            conversation_id: conversationIdRef.current,
+          }),
+        })
+        if (!res.ok) {
+          console.error('[voice-interview] save response not ok:', res.status)
+        }
+      }
+    } catch (err) {
+      console.error('[voice-interview] save failed, saving locally:', err)
+      await supabase.from('voice_sessions').insert({
+        user_id: user?.id,
+        transcript: fullTranscript,
+        duration_seconds: duration,
+        conversation_id: conversationIdRef.current,
+      })
+    }
+
+    setSaving(false)
+    savingRef.current = false
+    onComplete?.()
+  }, [session, user, onComplete])
+
   const conversation = useConversation({
     onMessage: (msg) => {
       if (msg.source === 'ai' && msg.message) {
@@ -89,9 +139,7 @@ function InterviewUI({ onClose, onComplete, inline }: { onClose: () => void; onC
       }
     },
     onDisconnect: () => {
-      if (transcript.length > 0 && !saving) {
-        handleSave()
-      }
+      doSave()
     },
   })
 
@@ -142,46 +190,8 @@ function InterviewUI({ onClose, onComplete, inline }: { onClose: () => void; onC
 
   const handleEnd = useCallback(async () => {
     await conversation.endSession()
-    await handleSave()
-  }, [conversation, transcript])
-
-  const handleSave = async () => {
-    if (saving || transcript.length === 0) return
-    setSaving(true)
-
-    const duration = Math.round((Date.now() - startTimeRef.current) / 1000)
-    const fullTranscript = transcript
-      .map(t => `${t.role === 'agent' ? 'Cadence' : 'You'}: ${t.text}`)
-      .join('\n\n')
-
-    try {
-      if (session?.access_token) {
-        await fetch(`${BACKEND_URL}/api/voice-session`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({
-            transcript: fullTranscript,
-            duration_seconds: duration,
-            conversation_id: conversationIdRef.current,
-          }),
-        })
-      }
-    } catch (err) {
-      console.error('[voice-interview] save failed, saving locally:', err)
-      await supabase.from('voice_sessions').insert({
-        user_id: user?.id,
-        transcript: fullTranscript,
-        duration_seconds: duration,
-        conversation_id: conversationIdRef.current,
-      })
-    }
-
-    setSaving(false)
-    onComplete?.()
-  }
+    await doSave()
+  }, [conversation, doSave])
 
   const { status, isSpeaking } = conversation
   const wrapCls = inline ? 'vi-fullpage vi-fullpage--inline' : 'vi-fullpage'

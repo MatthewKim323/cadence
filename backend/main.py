@@ -297,16 +297,34 @@ async def save_voice_session(request: Request):
     if not transcript:
         return JSONResponse({"error": "No transcript provided"}, status_code=400)
 
+    fingerprint = None
+    try:
+        from agents.interview_analyst import analyze_interview
+        fingerprint = await analyze_interview(transcript)
+        log.info(f"Generated interview fingerprint for user {user_id}")
+    except Exception as e:
+        log.error(f"Interview fingerprint generation failed: {e}")
+
     try:
         sb = create_client(_supabase_url, _supabase_service_key)
-        sb.table("voice_sessions").insert({
+        row: dict = {
             "user_id": user_id,
-            "conversation_id": conversation_id,
             "transcript": transcript,
             "duration_seconds": duration,
-        }).execute()
+        }
+        if fingerprint:
+            row["fingerprint_json"] = fingerprint
+
+        try:
+            row["conversation_id"] = conversation_id
+            result = sb.table("voice_sessions").insert(row).execute()
+        except Exception:
+            row.pop("conversation_id", None)
+            result = sb.table("voice_sessions").insert(row).execute()
+
+        session_id = result.data[0]["id"] if result.data else None
         log.info(f"Saved voice session for user {user_id} ({duration}s)")
-        return {"status": "ok"}
+        return {"status": "ok", "session_id": session_id, "fingerprint": fingerprint}
     except Exception as e:
         log.error(f"Failed to save voice session: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
