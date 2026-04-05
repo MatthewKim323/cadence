@@ -85,6 +85,86 @@ const MOCK_COMMS_PROFILE = {
   },
 }
 
+function parseTranscriptMessages(raw: string): { role: 'agent' | 'user'; text: string }[] {
+  const lines = raw.split(/\n\n/)
+  return lines
+    .map(line => {
+      const trimmed = line.trim()
+      if (trimmed.startsWith('Cadence: ')) {
+        return { role: 'agent' as const, text: trimmed.slice(9) }
+      } else if (trimmed.startsWith('You: ')) {
+        return { role: 'user' as const, text: trimmed.slice(4) }
+      }
+      return null
+    })
+    .filter(Boolean) as { role: 'agent' | 'user'; text: string }[]
+}
+
+function VoiceInterviewProfile({
+  session,
+  totalSessions,
+  formatDate,
+  formatDuration,
+}: {
+  session: VoiceSession
+  totalSessions: number
+  formatDate: (d: string) => string
+  formatDuration: (s: number | null) => string
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const messages = parseTranscriptMessages(session.transcript)
+  const exchangeCount = messages.filter(m => m.role === 'user').length
+
+  return (
+    <div className="pp-voice-profile">
+      <div className="pp-vp-meta">
+        <div className="pp-vp-meta-row">
+          <span className="pp-vp-meta-label">last interview</span>
+          <span className="pp-vp-meta-value">{formatDate(session.created_at)}</span>
+        </div>
+        <div className="pp-vp-meta-row">
+          <span className="pp-vp-meta-label">duration</span>
+          <span className="pp-vp-meta-value">{formatDuration(session.duration_seconds)}</span>
+        </div>
+        <div className="pp-vp-meta-row">
+          <span className="pp-vp-meta-label">exchanges</span>
+          <span className="pp-vp-meta-value">{exchangeCount}</span>
+        </div>
+        <div className="pp-vp-meta-row">
+          <span className="pp-vp-meta-label">total sessions</span>
+          <span className="pp-vp-meta-value">{totalSessions}</span>
+        </div>
+      </div>
+
+      <div className="pp-vp-transcript-section">
+        <div className="pp-vp-transcript-header">
+          <span className="pp-rules-label">transcript</span>
+          <button
+            className="pp-vp-expand-btn"
+            onClick={() => setExpanded(!expanded)}
+          >
+            {expanded ? 'collapse' : 'expand'}
+          </button>
+        </div>
+        <div className={`pp-vp-transcript ${expanded ? 'pp-vp-transcript--expanded' : ''}`}>
+          {messages.map((m, i) => (
+            <div key={i} className={`pp-vp-msg pp-vp-msg--${m.role}`}>
+              <span className="pp-vp-msg-role">{m.role === 'agent' ? 'cadence' : 'you'}</span>
+              <span className="pp-vp-msg-text">{m.text}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {session.fingerprint_json && (
+        <div className="pp-vp-fingerprint">
+          <span className="pp-session-badge">fingerprint generated</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function ProfilePage() {
   const { user } = useAuth()
   const { grouped } = useDocuments()
@@ -311,25 +391,26 @@ export function ProfilePage() {
                 <line x1="8" y1="23" x2="16" y2="23"/>
               </svg>
             </div>
-            <h2 className="pp-card-title">voice interviews</h2>
-            <button className="pp-interview-btn" onClick={() => setInterviewOpen(true)}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <line x1="12" y1="5" x2="12" y2="19"/>
-                <line x1="5" y1="12" x2="19" y2="12"/>
-              </svg>
-              new interview
-            </button>
+            <h2 className="pp-card-title">voice interview</h2>
+            {sessions.length > 0 && (
+              <button className="pp-interview-btn" onClick={() => setInterviewOpen(true)}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/>
+                </svg>
+                retake interview
+              </button>
+            )}
           </div>
 
           {loadingSessions ? (
-            <p className="pp-empty">loading sessions...</p>
+            <p className="pp-empty">loading...</p>
           ) : sessions.length === 0 ? (
             <div className="pp-empty-state">
               <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" opacity="0.3">
                 <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/>
                 <path d="M19 10v2a7 7 0 01-14 0v-2"/>
               </svg>
-              <p className="pp-empty">no voice interviews yet</p>
+              <p className="pp-empty">no voice interview yet</p>
               <p className="pp-empty-hint">
                 a 5-minute conversation where cadence learns how you think and express yourself.
               </p>
@@ -338,23 +419,12 @@ export function ProfilePage() {
               </button>
             </div>
           ) : (
-            <div className="pp-sessions">
-              {sessions.map(s => (
-                <div key={s.id} className="pp-session-row">
-                  <div className="pp-session-info">
-                    <span className="pp-session-date">{formatDate(s.created_at)}</span>
-                    <span className="pp-session-duration">{formatDuration(s.duration_seconds)}</span>
-                  </div>
-                  <div className="pp-session-preview">
-                    {s.transcript.slice(0, 120)}
-                    {s.transcript.length > 120 ? '...' : ''}
-                  </div>
-                  {s.fingerprint_json && (
-                    <span className="pp-session-badge">fingerprint generated</span>
-                  )}
-                </div>
-              ))}
-            </div>
+            <VoiceInterviewProfile
+              session={sessions[0]}
+              totalSessions={sessions.length}
+              formatDate={formatDate}
+              formatDuration={formatDuration}
+            />
           )}
         </div>
       </div>

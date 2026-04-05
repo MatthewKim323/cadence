@@ -22,11 +22,52 @@ interface TranscriptEntry {
   timestamp: number
 }
 
-function InterviewUI({ onClose, onComplete }: { onClose: () => void; onComplete?: () => void }) {
+function WispBackground({ speaking, visible }: { speaking: boolean; visible: boolean }) {
+  const iframeRef = useRef<HTMLIFrameElement>(null)
+  const rafRef = useRef<number>(0)
+  const speakingRef = useRef(speaking)
+  speakingRef.current = speaking
+
+  useEffect(() => {
+    if (!visible) return
+
+    const sendLevel = () => {
+      const iframe = iframeRef.current
+      if (!iframe?.contentWindow) {
+        rafRef.current = requestAnimationFrame(sendLevel)
+        return
+      }
+
+      const level = speakingRef.current ? 1.0 : 0.0
+      iframe.contentWindow.postMessage({ type: 'AUDIO_LEVEL', level }, '*')
+      rafRef.current = requestAnimationFrame(sendLevel)
+    }
+
+    rafRef.current = requestAnimationFrame(sendLevel)
+    return () => cancelAnimationFrame(rafRef.current)
+  }, [visible])
+
+  if (!visible) return null
+
+  return (
+    <motion.iframe
+      ref={iframeRef}
+      src="/wisp/index.html"
+      className="vi-wisp-bg"
+      title="voice visualizer"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 1.2, ease: [0.22, 1, 0.36, 1] }}
+    />
+  )
+}
+
+function InterviewUI({ onClose, onComplete, inline }: { onClose: () => void; onComplete?: () => void; inline?: boolean }) {
   const { user, session } = useAuth()
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([])
   const [saving, setSaving] = useState(false)
   const [micAllowed, setMicAllowed] = useState(false)
+  const [started, setStarted] = useState(false)
   const startTimeRef = useRef<number>(0)
   const transcriptEndRef = useRef<HTMLDivElement>(null)
   const conversationIdRef = useRef<string>('')
@@ -70,6 +111,8 @@ function InterviewUI({ onClose, onComplete }: { onClose: () => void; onComplete?
   const startInterview = useCallback(async () => {
     if (!session?.access_token) return
 
+    setStarted(true)
+
     try {
       const res = await fetch(`${BACKEND_URL}/api/voice-interview/signed-url`, {
         headers: { Authorization: `Bearer ${session.access_token}` },
@@ -92,6 +135,7 @@ function InterviewUI({ onClose, onComplete }: { onClose: () => void; onComplete?
         conversationIdRef.current = convId ?? ''
       } catch (fallbackErr) {
         console.error('[voice-interview] fallback also failed:', fallbackErr)
+        setStarted(false)
       }
     }
   }, [conversation, session])
@@ -140,11 +184,13 @@ function InterviewUI({ onClose, onComplete }: { onClose: () => void; onComplete?
   }
 
   const { status, isSpeaking } = conversation
+  const wrapCls = inline ? 'vi-fullpage vi-fullpage--inline' : 'vi-fullpage'
+  const showWisp = started
 
   if (!micAllowed) {
     return (
-      <div className="vi-step">
-        <div className="vi-mic-request">
+      <div className={wrapCls}>
+        <div className="vi-center-card">
           <div className="vi-mic-icon">
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round">
               <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/>
@@ -169,15 +215,10 @@ function InterviewUI({ onClose, onComplete }: { onClose: () => void; onComplete?
     )
   }
 
-  if (status === 'disconnected' && transcript.length === 0) {
+  if (!started && status === 'disconnected' && transcript.length === 0) {
     return (
-      <div className="vi-step">
-        <div className="vi-ready">
-          <div className="vi-orb">
-            <div className="vi-orb-ring" />
-            <div className="vi-orb-ring vi-orb-ring--2" />
-            <div className="vi-orb-core" />
-          </div>
+      <div className={wrapCls}>
+        <div className="vi-center-card">
           <h3 className="vi-heading">ready to begin</h3>
           <p className="vi-desc">
             a 5-minute conversation where cadence learns how you think,
@@ -194,26 +235,12 @@ function InterviewUI({ onClose, onComplete }: { onClose: () => void; onComplete?
     )
   }
 
-  if (status === 'connecting') {
-    return (
-      <div className="vi-step">
-        <div className="vi-connecting">
-          <div className="vi-orb vi-orb--pulse">
-            <div className="vi-orb-ring" />
-            <div className="vi-orb-ring vi-orb-ring--2" />
-            <div className="vi-orb-core" />
-          </div>
-          <p className="vi-status-text">connecting...</p>
-        </div>
-      </div>
-    )
-  }
-
   if (saving || (status === 'disconnected' && transcript.length > 0)) {
     return (
-      <div className="vi-step">
-        <div className="vi-done">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <div className={wrapCls}>
+        <WispBackground speaking={false} visible={showWisp} />
+        <div className="vi-center-card">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="1.5">
             <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
             <polyline points="22 4 12 14.01 9 11.01"/>
           </svg>
@@ -233,37 +260,44 @@ function InterviewUI({ onClose, onComplete }: { onClose: () => void; onComplete?
     )
   }
 
+  if (status === 'connecting') {
+    return (
+      <div className={wrapCls}>
+        <WispBackground speaking={false} visible={showWisp} />
+        <div className="vi-center-card vi-center-card--compact">
+          <div className="vi-connecting-spinner" />
+          <p className="vi-status-text">connecting...</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className="vi-live">
-      <div className="vi-live-header">
-        <div className="vi-live-indicator">
-          <span className={`vi-live-dot ${isSpeaking ? 'vi-live-dot--speaking' : ''}`} />
-          <span className="vi-live-label">
-            {isSpeaking ? 'cadence is speaking' : 'listening...'}
-          </span>
-        </div>
-        <button className="vi-btn vi-btn--end" onClick={handleEnd}>
-          end interview
-        </button>
-      </div>
+    <div className={wrapCls}>
+      <WispBackground speaking={isSpeaking} visible={showWisp} />
 
-      <div className="vi-orb-area">
-        <div className={`vi-orb vi-orb--live ${isSpeaking ? 'vi-orb--speaking' : 'vi-orb--listening'}`}>
-          <div className="vi-orb-ring" />
-          <div className="vi-orb-ring vi-orb-ring--2" />
-          <div className="vi-orb-ring vi-orb-ring--3" />
-          <div className="vi-orb-core" />
-        </div>
-      </div>
-
-      <div className="vi-transcript">
-        {transcript.map((t, i) => (
-          <div key={i} className={`vi-msg vi-msg--${t.role}`}>
-            <span className="vi-msg-role">{t.role === 'agent' ? 'cadence' : 'you'}</span>
-            <span className="vi-msg-text">{t.text}</span>
+      <div className="vi-live-overlay">
+        <div className="vi-live-top">
+          <div className="vi-live-indicator">
+            <span className={`vi-live-dot ${isSpeaking ? 'vi-live-dot--speaking' : ''}`} />
+            <span className="vi-live-label">
+              {isSpeaking ? 'cadence is speaking' : 'listening...'}
+            </span>
           </div>
-        ))}
-        <div ref={transcriptEndRef} />
+          <button className="vi-btn vi-btn--end" onClick={handleEnd}>
+            end interview
+          </button>
+        </div>
+
+        <div className="vi-live-transcript">
+          {transcript.map((t, i) => (
+            <div key={i} className={`vi-msg vi-msg--${t.role}`}>
+              <span className="vi-msg-role">{t.role === 'agent' ? 'cadence' : 'you'}</span>
+              <span className="vi-msg-text">{t.text}</span>
+            </div>
+          ))}
+          <div ref={transcriptEndRef} />
+        </div>
       </div>
     </div>
   )
@@ -275,7 +309,7 @@ export function VoiceInterviewModal({ open, onClose, onComplete, inline }: Props
   if (inline) {
     return (
       <ConversationProvider>
-        <InterviewUI onClose={onClose} onComplete={onComplete} />
+        <InterviewUI onClose={onClose} onComplete={onComplete} inline />
       </ConversationProvider>
     )
   }
@@ -284,23 +318,15 @@ export function VoiceInterviewModal({ open, onClose, onComplete, inline }: Props
     <AnimatePresence>
       {open && (
         <motion.div
-          className="vi-overlay"
+          className="vi-page-takeover"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.25 }}
+          transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
         >
-          <motion.div
-            className="vi-modal"
-            initial={{ opacity: 0, scale: 0.96, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96, y: 20 }}
-            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-          >
-            <ConversationProvider>
-              <InterviewUI onClose={onClose} onComplete={onComplete} />
-            </ConversationProvider>
-          </motion.div>
+          <ConversationProvider>
+            <InterviewUI onClose={onClose} onComplete={onComplete} />
+          </ConversationProvider>
         </motion.div>
       )}
     </AnimatePresence>
