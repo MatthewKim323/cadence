@@ -16,7 +16,7 @@ export function Hero() {
   return (
     <section className="hero">
       <div className="hero-content">
-        <p className="hero-eyebrow">multi-agent voice preservation</p>
+        <p className="hero-eyebrow">built for DiamondHacks | Matthew Kim</p>
         <h1 className="hero-headline">
           Your voice,<br />
           <span className="accent">preserved.</span>
