@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { useDocuments } from '../hooks/useDocuments'
 import { useSessions } from '../hooks/useSessions'
 import type { Document } from '../hooks/useDocuments'
@@ -34,6 +34,7 @@ export function Dashboard() {
   const [uploadOpen, setUploadOpen] = useState(false)
   const [selectorOpen, setSelectorOpen] = useState(false)
   const [interviewOpen, setInterviewOpen] = useState(false)
+  const lastPromptRef = useRef('')
 
   const selectedDocs = documents.filter(d => selectedDocIds.includes(d.id))
 
@@ -44,6 +45,7 @@ export function Dashboard() {
 
   const handleSubmit = useCallback((prompt: string) => {
     if (activeStudio === 'writing') {
+      lastPromptRef.current = prompt
       setView({ kind: 'writing-pipeline', prompt })
     }
   }, [activeStudio])
@@ -84,7 +86,7 @@ export function Dashboard() {
       case 'deep-dive':
         return (
           <DetectionDeepDive
-            onBack={() => setView({ kind: 'writing-pipeline' })}
+            onBack={() => setView({ kind: 'writing-pipeline', prompt: lastPromptRef.current })}
           />
         )
       case 'comms':

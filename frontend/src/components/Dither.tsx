@@ -158,7 +158,7 @@ class RetroEffectImpl extends Effect {
   }
 }
 
-const WrappedRetro = wrapEffect(RetroEffectImpl)
+const WrappedRetro = wrapEffect(RetroEffectImpl) as any
 
 interface RetroEffectProps {
   colorNum: number
