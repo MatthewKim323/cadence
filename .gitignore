@@ -28,6 +28,5 @@ Thumbs.db
 # TypeScript build info
 *.tsbuildinfo
 
-# Hackathon guides (local reference only)
 *.md
 !README.md
