@@ -87,13 +87,113 @@ def _humanize_text(text: str) -> str:
     return output
 
 
+# ── Homoglyph map: Latin -> visually-identical Cyrillic/Greek ──
+_HOMOGLYPHS = {
+    'a': '\u0430',  # Cyrillic а
+    'e': '\u0435',  # Cyrillic е
+    'o': '\u043e',  # Cyrillic о
+    'p': '\u0440',  # Cyrillic р
+    'c': '\u0441',  # Cyrillic с
+    's': '\u0455',  # Cyrillic ѕ
+    'i': '\u0456',  # Cyrillic і
+    'x': '\u0445',  # Cyrillic х
+    'A': '\u0410',  # Cyrillic А
+    'E': '\u0415',  # Cyrillic Е
+    'O': '\u041e',  # Cyrillic О
+    'P': '\u0420',  # Cyrillic Р
+    'C': '\u0421',  # Cyrillic С
+    'S': '\u0405',  # Cyrillic Ѕ
+    'B': '\u0412',  # Cyrillic В
+    'T': '\u0422',  # Cyrillic Т
+}
+
+_ZWSP = '\u200b'  # zero-width space
+
+_CONTRACTION_SWAPS = [
+    ("it's", "its"),
+    ("It's", "Its"),
+    ("you're", "your"),
+    ("You're", "Your"),
+    ("they're", "their"),
+    ("They're", "Their"),
+]
+
+_DOUBLE_WORD_TARGETS = ["the", "to", "and", "in", "a", "of", "that", "is", "was"]
+
+
+def _inject_noise(text: str, intensity: int = 1) -> str:
+    """Inject progressive noise to break AI detector tokenization.
+    intensity 1-5: higher = more aggressive noise."""
+    intensity = max(1, min(5, intensity))
+    rng = random.Random()
+
+    # ── Layer 1a: Homoglyph substitution ──
+    homoglyph_rate = 0.03 + (intensity - 1) * 0.05  # 3% -> 23%
+    chars = list(text)
+    for idx in range(len(chars)):
+        ch = chars[idx]
+        if ch in _HOMOGLYPHS and rng.random() < homoglyph_rate:
+            chars[idx] = _HOMOGLYPHS[ch]
+    text = "".join(chars)
+
+    # ── Layer 1b: Zero-width space insertion between words ──
+    zwsp_rate = 0.02 + (intensity - 1) * 0.025  # 2% -> 12%
+    words = text.split(' ')
+    result_words = []
+    for w in words:
+        result_words.append(w)
+        if rng.random() < zwsp_rate and len(w) > 2:
+            result_words.append(_ZWSP)
+    text = ' '.join(result_words)
+
+    # ── Layer 2a: Double words ──
+    double_count = min(intensity, 4)
+    sentences = text.split('. ')
+    doubles_done = 0
+    for s_idx in range(len(sentences)):
+        if doubles_done >= double_count:
+            break
+        words_in = sentences[s_idx].split()
+        for w_idx in range(len(words_in) - 1, 0, -1):
+            w_lower = words_in[w_idx].lower().strip('.,!?')
+            if w_lower in _DOUBLE_WORD_TARGETS and rng.random() < 0.3:
+                words_in.insert(w_idx, words_in[w_idx])
+                doubles_done += 1
+                break
+        sentences[s_idx] = ' '.join(words_in)
+    text = '. '.join(sentences)
+
+    # ── Layer 2b: Contraction/possessive swaps ──
+    swap_count = 0 if intensity < 2 else (1 if intensity < 4 else 2)
+    swaps_done = 0
+    for wrong_form, right_form in _CONTRACTION_SWAPS:
+        if swaps_done >= swap_count:
+            break
+        if right_form in text:
+            pos = text.find(right_form)
+            if pos != -1 and rng.random() < 0.5:
+                text = text[:pos] + wrong_form + text[pos + len(right_form):]
+                swaps_done += 1
+
+    # ── Layer 2c: Missing commas before conjunctions ──
+    drop_count = min(intensity, 4)
+    comma_conj = re.compile(r',\s+(and|but|so|or)\s', re.IGNORECASE)
+    matches = list(comma_conj.finditer(text))
+    if matches:
+        rng.shuffle(matches)
+        for m in matches[:drop_count]:
+            text = text[:m.start()] + ' ' + m.group(1) + ' ' + text[m.end():]
+
+    return text
+
+
 async def write_draft(
     prompt: str,
     fingerprint: dict,
     send: callable,
     revision_info: dict | None = None,
 ) -> str:
-    """Run Writer with async streaming, return the full draft text."""
+    """Run Writer with async streaming, return the clean draft text (no noise)."""
     client = anthropic.AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
     rules_block = "\n".join(f"- {r}" for r in fingerprint.get("writing_rules", []))
@@ -185,6 +285,5 @@ async def write_draft(
         "agent": "writer",
         "text": f"draft complete ({paragraph_count} paragraphs, {word_count} words)"
     })
-    await send({"type": "draft_complete", "text": humanized})
 
     return humanized

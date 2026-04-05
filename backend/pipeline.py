@@ -2,7 +2,7 @@ from __future__ import annotations
 import traceback
 from utils.pdf_extract import fetch_document_texts
 from agents.voice_analyst import analyze_voice
-from agents.writer import write_draft
+from agents.writer import write_draft, _inject_noise
 from agents.detector_squad import run_detection
 
 MAX_ITERATIONS = 5
@@ -32,7 +32,7 @@ async def run_writing_pipeline(
 
         fingerprint = await analyze_voice(doc_texts, send)
 
-        current_draft = ""
+        clean_draft = ""
         iteration_history = []
 
         for iteration in range(1, MAX_ITERATIONS + 1):
@@ -40,22 +40,31 @@ async def run_writing_pipeline(
             await send({
                 "type": "agent_log",
                 "agent": "system",
-                "text": f"--- iteration {iteration} ---"
+                "text": f"--- iteration {iteration} (noise intensity: {iteration}/5) ---"
             })
 
             if iteration == 1:
-                current_draft = await write_draft(prompt, fingerprint, send)
+                clean_draft = await write_draft(prompt, fingerprint, send)
             else:
                 last = iteration_history[-1]
                 revision_info = {
-                    "current_draft": current_draft,
+                    "current_draft": clean_draft,
                     "flagged_sentences": last["flagged_sentences"],
                 }
-                current_draft = await write_draft(prompt, fingerprint, send, revision_info)
+                clean_draft = await write_draft(prompt, fingerprint, send, revision_info)
+
+            noised_draft = _inject_noise(clean_draft, intensity=iteration)
+
+            await send({
+                "type": "agent_log",
+                "agent": "system",
+                "text": f"noise applied (intensity {iteration}/5)"
+            })
+            await send({"type": "draft_complete", "text": noised_draft})
 
             await send({"type": "status", "phase": "detecting", "iteration": iteration})
 
-            detection = await run_detection(current_draft, send)
+            detection = await run_detection(noised_draft, send)
 
             iter_data = {
                 "round": iteration,
@@ -77,7 +86,7 @@ async def run_writing_pipeline(
             if detection["consensus"] <= PASS_THRESHOLD:
                 await send({
                     "type": "complete",
-                    "draft": current_draft,
+                    "draft": noised_draft,
                     "iterations": len(iteration_history),
                     "final_consensus": detection["consensus"],
                     "history": [
@@ -104,7 +113,7 @@ async def run_writing_pipeline(
 
         await send({
             "type": "complete",
-            "draft": current_draft,
+            "draft": noised_draft,
             "iterations": len(iteration_history),
             "final_consensus": iteration_history[-1]["consensus"] if iteration_history else 0,
             "history": [

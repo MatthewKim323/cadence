@@ -11,7 +11,7 @@ log = logging.getLogger("cadence")
 _active_sessions: set[str] = set()
 _bu_client: AsyncBrowserUse | None = None
 
-TASK_TIMEOUT_SECONDS = 180
+TASK_TIMEOUT_SECONDS = 600
 
 DETECTORS = [
     {
@@ -19,23 +19,26 @@ DETECTORS = [
         "label": "ZeroGPT",
         "start_url": "https://www.zerogpt.com",
         "task_template": (
-            "You are on ZeroGPT.com. Follow these steps:\n"
-            "1. Find the large text input area. Click on it.\n"
-            "2. Type the ENTIRE text below into the text area.\n"
-            "3. Click the 'Detect Text' button.\n"
-            "4. Wait for results to load (5-15 seconds).\n"
-            "5. Scroll down to see the results.\n"
-            "6. Read the AI-generated percentage (e.g. '85.67% AI GPT').\n"
-            "7. Look at the results text carefully. Sentences highlighted with a YELLOW BACKGROUND are AI-detected.\n"
-            "   Scroll through the ENTIRE results text from top to bottom.\n"
-            "   For each highlighted sentence, copy the FIRST 6 WORDS of that sentence.\n"
-            "8. Return ONLY this format:\n"
-            "   AI Score: [percentage]%\n"
-            "   Flagged:\n"
-            "   - [first 6 words of sentence 1]...\n"
-            "   - [first 6 words of sentence 2]...\n"
-            "   If no sentences are highlighted, write: Flagged: none\n\n"
-            "TEXT TO CHECK:\n\n{text}"
+            "Close any popups or cookie banners first.\n"
+            "Find the textarea on the page and click it.\n"
+            "Type the text below into the textarea.\n"
+            "Then find and click the button to detect/scan the text. "
+            "It is a round arrow button or a button near the bottom-right of the textarea. "
+            "Do NOT click the tab that says 'Detect Text' at the top of the textarea.\n"
+            "Wait for results to appear.\n"
+            "Read the AI percentage score.\n"
+            "IMPORTANT NEXT STEP: You are NOT done yet. After reading the score, "
+            "scroll DOWN through the results section below the score. "
+            "Look for sentences that have a YELLOW or highlighted background. "
+            "These are the AI-detected sentences. "
+            "Scroll through the ENTIRE results text from top to bottom. "
+            "For each yellow highlighted sentence, note the first 6 words.\n"
+            "Only AFTER scrolling through ALL results, return this format:\n"
+            "AI Score: [number]%\n"
+            "Flagged:\n"
+            "- [first 6 words of highlighted sentence]...\n"
+            "If no sentences are highlighted yellow: Flagged: none\n\n"
+            "TEXT:\n\n{text}"
         ),
     },
     {
@@ -43,33 +46,47 @@ DETECTORS = [
         "label": "Originality.ai",
         "start_url": "https://originality.ai/ai-checker",
         "task_template": (
-            "You are on Originality.ai free AI checker. Follow these steps:\n"
-            "1. Find the text input area. Click on it.\n"
-            "2. Type the ENTIRE text below into the text area.\n"
-            "3. Click the scan/check button.\n"
-            "4. Wait for results to load (10-30 seconds).\n"
-            "5. Scroll down to see results.\n"
-            "6. On the RIGHT side, read the overall AI percentage score.\n"
-            "7. Look at the analyzed text. Sentences have colored backgrounds:\n"
-            "   GREEN = human (skip these)\n"
-            "   YELLOW/ORANGE = risky (include these)\n"
-            "   RED/PINK = AI detected (include these)\n"
-            "   Scroll through ALL results from top to bottom.\n"
-            "   For each non-green sentence, copy the FIRST 6 WORDS of that sentence.\n"
-            "8. Return ONLY this format:\n"
-            "   AI Score: [percentage]%\n"
-            "   Flagged:\n"
-            "   - [first 6 words of sentence 1]...\n"
-            "   - [first 6 words of sentence 2]...\n"
-            "   If no sentences are flagged, write: Flagged: none\n\n"
-            "TEXT TO CHECK:\n\n{text}"
+            "Close any popups or cookie banners first.\n"
+            "Find the text input area and click it.\n"
+            "Type the text below into the text area.\n"
+            "Click the scan/check button.\n"
+            "Wait for results to load.\n"
+            "Read the result on the right side. CRITICAL: The score says something like "
+            "'X% confident this is original' or 'X% confident this is AI-generated'. "
+            "You MUST pay attention to whether it says ORIGINAL or AI. "
+            "If it says '97% original', that means AI Score is 3% (100 minus 97). "
+            "If it says '97% AI-generated' or '97% not original', that means AI Score is 97%. "
+            "Always report the AI percentage, NOT the original percentage.\n"
+            "IMPORTANT NEXT STEP: You are NOT done yet. After reading the score, "
+            "scroll DOWN through the results. Look for sentences with colored backgrounds:\n"
+            "  GREEN = human (skip)\n"
+            "  YELLOW/ORANGE = risky (include)\n"
+            "  RED/PINK = AI detected (include)\n"
+            "Scroll through ALL results. For each non-green sentence, note the first 6 words.\n"
+            "Only AFTER scrolling through ALL results, return this format:\n"
+            "AI Score: [AI percentage]%\n"
+            "Flagged:\n"
+            "- [first 6 words of flagged sentence]...\n"
+            "If no non-green sentences: Flagged: none\n\n"
+            "TEXT:\n\n{text}"
         ),
     },
 ]
 
 
+_REVERSE_HOMOGLYPHS = {
+    '\u0430': 'a', '\u0435': 'e', '\u043e': 'o', '\u0440': 'p',
+    '\u0441': 'c', '\u0455': 's', '\u0456': 'i', '\u0445': 'x',
+    '\u0410': 'A', '\u0415': 'E', '\u041e': 'O', '\u0420': 'P',
+    '\u0421': 'C', '\u0405': 'S', '\u0412': 'B', '\u0422': 'T',
+}
+
+
 def _clean_draft_for_detectors(text: str) -> str:
-    """Strip all newlines and collapse whitespace into plain running text."""
+    """Strip noise (homoglyphs, ZWSP), newlines, and collapse whitespace for detector input."""
+    for cyrillic, latin in _REVERSE_HOMOGLYPHS.items():
+        text = text.replace(cyrillic, latin)
+    text = text.replace('\u200b', '')
     text = text.replace("\\n", " ")
     text = text.replace("\r\n", " ")
     text = text.replace("\n", " ")
@@ -157,14 +174,14 @@ def _parse_output(raw: str, sentences: list[str]) -> tuple[float, list[int]]:
     return score, flagged_indices
 
 
-async def _run_detector(
+async def _run_detector_once(
     bu_client: AsyncBrowserUse,
     detector: dict,
     clean_text: str,
     sentences: list[str],
     send: callable,
 ) -> dict:
-    """Create a session, run detection, extract score and flagged sentence indices."""
+    """Single attempt: create session, run detection, extract score."""
     name = detector["name"]
     label = detector["label"]
     session_id = None
@@ -242,13 +259,13 @@ async def _run_detector(
         }
 
     except Exception as e:
-        detail = getattr(e, 'body', str(e))
-        log.error(f"[{name}] Detector failed: {detail}")
+        detail = getattr(e, 'body', None) or getattr(e, 'message', None) or str(e) or repr(e)
+        log.error(f"[{name}] Detector failed: {type(e).__name__}: {detail}")
         try:
             await send({
                 "type": "agent_log",
                 "agent": f"detector:{name}",
-                "text": f"error: {str(detail)[:200]}"
+                "text": f"error: {type(e).__name__}: {str(detail)[:200]}"
             })
         except Exception:
             pass
@@ -257,7 +274,7 @@ async def _run_detector(
             "label": label,
             "score": 0.0,
             "flagged_indices": [],
-            "raw_output": str(e),
+            "raw_output": f"{type(e).__name__}: {detail}",
         }
     finally:
         if session_id:
@@ -267,6 +284,32 @@ async def _run_detector(
                 log.info(f"[{name}] Session {session_id} deleted")
             except Exception:
                 pass
+
+
+MAX_RETRIES = 2
+
+
+async def _run_detector(
+    bu_client: AsyncBrowserUse,
+    detector: dict,
+    clean_text: str,
+    sentences: list[str],
+    send: callable,
+) -> dict:
+    """Run detector with automatic retry on failure."""
+    name = detector["name"]
+    for attempt in range(1, MAX_RETRIES + 1):
+        result = await _run_detector_once(bu_client, detector, clean_text, sentences, send)
+        if result["score"] > 0:
+            return result
+        if attempt < MAX_RETRIES:
+            log.info(f"[{name}] Attempt {attempt} got score 0, retrying...")
+            await send({
+                "type": "agent_log",
+                "agent": f"detector:{name}",
+                "text": f"attempt {attempt} failed, retrying..."
+            })
+    return result
 
 
 async def cleanup_all_sessions():
